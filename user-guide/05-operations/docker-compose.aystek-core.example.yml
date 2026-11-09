@@ -1,0 +1,103 @@
+name: aystek-core
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: aystek-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-12701}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - aystek_internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: aystek-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - aystek_internal
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: aystek-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-aystek}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-15673}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-25672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - aystek_internal
+
+  aystek-core:
+    image: ${AYSTEK_CORE_IMAGE:-ghcr.io/aystek/aystek-core:latest}
+    container_name: aystek-core
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - redis
+      - rabbitmq
+    environment:
+      APP_ENV: production
+      APP_PORT: 9090
+      SEED_ON_START: "true"
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME:-root}:${MONGO_ROOT_PASSWORD}@mongodb:27017/aystek_core?authSource=admin
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-aystek}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://panel.sizindomain.com,https://api.sizindomain.com}
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:${APP_PORT:-19090}:9090"
+    volumes:
+      - core_logs:/var/log/aystek-core
+    networks:
+      - aystek_internal
+
+  aystek-panel:
+    image: ${AYSTEK_PANEL_IMAGE:-ghcr.io/aystek/aystek-panel:latest}
+    container_name: aystek-panel
+    restart: unless-stopped
+    depends_on:
+      - aystek-core
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.sizindomain.com}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.sizindomain.com}
+      NEXT_PUBLIC_SSE_BASE_URL: ${NEXT_PUBLIC_SSE_BASE_URL:-https://api.sizindomain.com}
+      NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-production}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://panel.sizindomain.com}
+    ports:
+      - "127.0.0.1:${PANEL_PORT:-13000}:3000"
+    networks:
+      - aystek_internal
+
+networks:
+  aystek_internal:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:
+  rabbitmq_data:
+  core_logs:

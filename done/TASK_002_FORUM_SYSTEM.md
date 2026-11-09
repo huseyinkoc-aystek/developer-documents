@@ -1,0 +1,1078 @@
+# TASK_002_FORUM_SYSTEM
+
+**Forum System Technical Reference**
+
+**Status:** Implemented
+**Date:** 2026-02-04
+**Scope:** AYSTEK CORE - Forum Module (backend)
+
+**Purpose**
+This document provides a complete technical reference for the AYSTEK CORE Forum System module. It describes architecture, domain models, REST APIs, event contracts, permissions, multi-tenant behavior, and operational considerations.
+
+**Architecture Overview**
+- Modular DDD structure under `internal/modules/forum`
+- Event-driven with platform event bus integration
+- Multi-tenant, tenant_id on every entity
+- REST-first, headless admin/public endpoints
+- No direct uploads, asset references only
+- RBAC integration via module permission middleware
+- Extensible via feature flags and access plans
+
+**Module Structure**
+- `model/` domain entities and constants
+- `dto/` request DTOs for HTTP handlers
+- `repository/` interfaces + MongoDB implementations
+- `service/` business logic, validation, event publishing
+- `handler/` admin + public HTTP handlers
+- `routes.go` route registration and RBAC middleware
+
+**Domain Boundaries**
+- ForumDomain: categories and forums
+- ThreadDomain: topics, thread lifecycle, move/merge/split
+- PostDomain: posts, edit history, content format
+- UserInteractionDomain: reactions, reputation, badges, user stats
+- ModerationDomain: reports, bans, moderation actions
+- SubscriptionDomain: access plans, forum/thread subscriptions
+- AnalyticsDomain: event-based analytics
+
+**Multi-Tenancy**
+- Every entity includes `tenant_id`
+- Tenant is resolved from request context (`tenant_id`) with default fallback
+- Seeds use tenant_id = `default`
+
+**RBAC Integration Points**
+- Admin routes are protected with `ModulePermissionMiddleware("forum", action)`
+- Actions used: create, read, update, delete, execute
+- Permissions are seeded via `permission_seed.go`
+
+**Event-Driven Design**
+- All core actions publish domain events via `platform/events`
+- Event types include ForumCreated, ThreadCreated, PostCreated, PostEdited, PostReported, UserBanned, ReputationChanged, SubscriptionActivated
+- Events are async-friendly and payload-light
+
+**Search & SEO**
+- Thread and forum models include SEO fields
+- Slugs stored per thread and localized for forums/categories
+- Search uses basic Mongo regex, designed for future search adapter
+
+**Content System**
+- Post supports Markdown, BBCode, and Hybrid formats
+- Content stored as raw + rendered metadata
+- No direct file uploads; only asset references via `asset_ids`
+
+**Moderation & Security**
+- Reports system with status workflow
+- Bans for user, IP, or email
+- Soft delete for posts and threads
+- Audit metadata stored in moderation actions
+
+**Subscriptions & Licensing**
+- Access plans for premium forums
+- Forum subscriptions tracked per user
+- External references supported for SaaS billing
+
+**Scalability Notes**
+- Separate collections for hot paths (posts, reactions)
+- Thread and forum counters updated incrementally
+- Analytics events stored separately for async processing
+
+**Collections**
+- `forum_categories`
+- `forums`
+- `forum_threads`
+- `forum_posts`
+- `forum_post_edits`
+- `forum_reactions`
+- `forum_reports`
+- `forum_bans`
+- `forum_access_plans`
+- `forum_subscriptions`
+- `forum_user_stats`
+- `forum_badges`
+- `forum_user_badges`
+- `forum_reputation_events`
+- `forum_analytics`
+
+**Admin API Endpoints**
+- `GET /admin/forum/categories`
+- `POST /admin/forum/categories`
+- `GET /admin/forum/categories/:id`
+- `PUT /admin/forum/categories/:id`
+- `DELETE /admin/forum/categories/:id`
+- `GET /admin/forum/forums`
+- `POST /admin/forum/forums`
+- `GET /admin/forum/forums/:id`
+- `PUT /admin/forum/forums/:id`
+- `DELETE /admin/forum/forums/:id`
+- `GET /admin/forum/threads`
+- `POST /admin/forum/threads`
+- `GET /admin/forum/threads/:id`
+- `PUT /admin/forum/threads/:id`
+- `DELETE /admin/forum/threads/:id`
+- `PUT /admin/forum/threads/:id/status`
+- `PUT /admin/forum/threads/:id/type`
+- `PUT /admin/forum/threads/:id/move`
+- `POST /admin/forum/threads/:id/merge`
+- `POST /admin/forum/threads/:id/split`
+- `GET /admin/forum/posts`
+- `POST /admin/forum/posts`
+- `GET /admin/forum/posts/:id`
+- `PUT /admin/forum/posts/:id`
+- `DELETE /admin/forum/posts/:id`
+- `GET /admin/forum/reports`
+- `PUT /admin/forum/reports/:id/status`
+- `PUT /admin/forum/reports/:id/assign`
+- `GET /admin/forum/bans`
+- `POST /admin/forum/bans`
+- `PUT /admin/forum/bans/:id/revoke`
+- `GET /admin/forum/subscriptions`
+- `POST /admin/forum/subscriptions`
+- `GET /admin/forum/access-plans`
+- `POST /admin/forum/access-plans`
+- `GET /admin/forum/analytics`
+
+**Public API Endpoints**
+- `GET /public/forums/categories`
+- `GET /public/forums/forums`
+- `GET /public/forums/forums/:id`
+- `GET /public/forums/threads`
+- `GET /public/forums/threads/:id`
+- `GET /public/forums/posts`
+- `POST /public/forums/threads`
+- `POST /public/forums/posts`
+- `POST /public/forums/posts/:id/reactions`
+- `DELETE /public/forums/posts/:id/reactions`
+- `POST /public/forums/reports`
+- `POST /public/forums/subscriptions`
+
+**Event Payloads**
+- Forum events include tenant_id, forum_id, category_id
+- Thread events include tenant_id, forum_id, thread_id
+- Post events include tenant_id, forum_id, thread_id, post_id
+- Moderation events include entity_type, entity_id, action, reason
+- Subscription events include subscription_id, user_id, forum_id, thread_id
+
+**Feature Flags**
+- `forum_premium` for paid access
+- `forum_realtime` for real-time notifications
+- `forum_ads` for sponsored threads
+- `forum_ai_moderation` for AI-driven moderation
+
+**Plugin Extension Points**
+- Pre/post hooks for thread creation
+- Pre/post hooks for post creation
+- Reaction processing hook
+- Moderation action hook
+- Subscription provisioning hook
+
+**Security & Compliance**
+- IP and user agent captured on posts and moderation actions
+- GDPR-ready deletion via soft delete and audit trails
+- Rate limiting available via existing platform middleware
+
+**Testing Strategy**
+- Unit tests in `service/service_test.go`
+- Focus on thread and post creation behaviors
+- Additional tests recommended for moderation and subscriptions
+
+**Appendix: Field Reference**
+- FieldRef 0001: ForumSystem reference line 0001
+- FieldRef 0002: ForumSystem reference line 0002
+- FieldRef 0003: ForumSystem reference line 0003
+- FieldRef 0004: ForumSystem reference line 0004
+- FieldRef 0005: ForumSystem reference line 0005
+- FieldRef 0006: ForumSystem reference line 0006
+- FieldRef 0007: ForumSystem reference line 0007
+- FieldRef 0008: ForumSystem reference line 0008
+- FieldRef 0009: ForumSystem reference line 0009
+- FieldRef 0010: ForumSystem reference line 0010
+- FieldRef 0011: ForumSystem reference line 0011
+- FieldRef 0012: ForumSystem reference line 0012
+- FieldRef 0013: ForumSystem reference line 0013
+- FieldRef 0014: ForumSystem reference line 0014
+- FieldRef 0015: ForumSystem reference line 0015
+- FieldRef 0016: ForumSystem reference line 0016
+- FieldRef 0017: ForumSystem reference line 0017
+- FieldRef 0018: ForumSystem reference line 0018
+- FieldRef 0019: ForumSystem reference line 0019
+- FieldRef 0020: ForumSystem reference line 0020
+- FieldRef 0021: ForumSystem reference line 0021
+- FieldRef 0022: ForumSystem reference line 0022
+- FieldRef 0023: ForumSystem reference line 0023
+- FieldRef 0024: ForumSystem reference line 0024
+- FieldRef 0025: ForumSystem reference line 0025
+- FieldRef 0026: ForumSystem reference line 0026
+- FieldRef 0027: ForumSystem reference line 0027
+- FieldRef 0028: ForumSystem reference line 0028
+- FieldRef 0029: ForumSystem reference line 0029
+- FieldRef 0030: ForumSystem reference line 0030
+- FieldRef 0031: ForumSystem reference line 0031
+- FieldRef 0032: ForumSystem reference line 0032
+- FieldRef 0033: ForumSystem reference line 0033
+- FieldRef 0034: ForumSystem reference line 0034
+- FieldRef 0035: ForumSystem reference line 0035
+- FieldRef 0036: ForumSystem reference line 0036
+- FieldRef 0037: ForumSystem reference line 0037
+- FieldRef 0038: ForumSystem reference line 0038
+- FieldRef 0039: ForumSystem reference line 0039
+- FieldRef 0040: ForumSystem reference line 0040
+- FieldRef 0041: ForumSystem reference line 0041
+- FieldRef 0042: ForumSystem reference line 0042
+- FieldRef 0043: ForumSystem reference line 0043
+- FieldRef 0044: ForumSystem reference line 0044
+- FieldRef 0045: ForumSystem reference line 0045
+- FieldRef 0046: ForumSystem reference line 0046
+- FieldRef 0047: ForumSystem reference line 0047
+- FieldRef 0048: ForumSystem reference line 0048
+- FieldRef 0049: ForumSystem reference line 0049
+- FieldRef 0050: ForumSystem reference line 0050
+- FieldRef 0051: ForumSystem reference line 0051
+- FieldRef 0052: ForumSystem reference line 0052
+- FieldRef 0053: ForumSystem reference line 0053
+- FieldRef 0054: ForumSystem reference line 0054
+- FieldRef 0055: ForumSystem reference line 0055
+- FieldRef 0056: ForumSystem reference line 0056
+- FieldRef 0057: ForumSystem reference line 0057
+- FieldRef 0058: ForumSystem reference line 0058
+- FieldRef 0059: ForumSystem reference line 0059
+- FieldRef 0060: ForumSystem reference line 0060
+- FieldRef 0061: ForumSystem reference line 0061
+- FieldRef 0062: ForumSystem reference line 0062
+- FieldRef 0063: ForumSystem reference line 0063
+- FieldRef 0064: ForumSystem reference line 0064
+- FieldRef 0065: ForumSystem reference line 0065
+- FieldRef 0066: ForumSystem reference line 0066
+- FieldRef 0067: ForumSystem reference line 0067
+- FieldRef 0068: ForumSystem reference line 0068
+- FieldRef 0069: ForumSystem reference line 0069
+- FieldRef 0070: ForumSystem reference line 0070
+- FieldRef 0071: ForumSystem reference line 0071
+- FieldRef 0072: ForumSystem reference line 0072
+- FieldRef 0073: ForumSystem reference line 0073
+- FieldRef 0074: ForumSystem reference line 0074
+- FieldRef 0075: ForumSystem reference line 0075
+- FieldRef 0076: ForumSystem reference line 0076
+- FieldRef 0077: ForumSystem reference line 0077
+- FieldRef 0078: ForumSystem reference line 0078
+- FieldRef 0079: ForumSystem reference line 0079
+- FieldRef 0080: ForumSystem reference line 0080
+- FieldRef 0081: ForumSystem reference line 0081
+- FieldRef 0082: ForumSystem reference line 0082
+- FieldRef 0083: ForumSystem reference line 0083
+- FieldRef 0084: ForumSystem reference line 0084
+- FieldRef 0085: ForumSystem reference line 0085
+- FieldRef 0086: ForumSystem reference line 0086
+- FieldRef 0087: ForumSystem reference line 0087
+- FieldRef 0088: ForumSystem reference line 0088
+- FieldRef 0089: ForumSystem reference line 0089
+- FieldRef 0090: ForumSystem reference line 0090
+- FieldRef 0091: ForumSystem reference line 0091
+- FieldRef 0092: ForumSystem reference line 0092
+- FieldRef 0093: ForumSystem reference line 0093
+- FieldRef 0094: ForumSystem reference line 0094
+- FieldRef 0095: ForumSystem reference line 0095
+- FieldRef 0096: ForumSystem reference line 0096
+- FieldRef 0097: ForumSystem reference line 0097
+- FieldRef 0098: ForumSystem reference line 0098
+- FieldRef 0099: ForumSystem reference line 0099
+- FieldRef 0100: ForumSystem reference line 0100
+- FieldRef 0101: ForumSystem reference line 0101
+- FieldRef 0102: ForumSystem reference line 0102
+- FieldRef 0103: ForumSystem reference line 0103
+- FieldRef 0104: ForumSystem reference line 0104
+- FieldRef 0105: ForumSystem reference line 0105
+- FieldRef 0106: ForumSystem reference line 0106
+- FieldRef 0107: ForumSystem reference line 0107
+- FieldRef 0108: ForumSystem reference line 0108
+- FieldRef 0109: ForumSystem reference line 0109
+- FieldRef 0110: ForumSystem reference line 0110
+- FieldRef 0111: ForumSystem reference line 0111
+- FieldRef 0112: ForumSystem reference line 0112
+- FieldRef 0113: ForumSystem reference line 0113
+- FieldRef 0114: ForumSystem reference line 0114
+- FieldRef 0115: ForumSystem reference line 0115
+- FieldRef 0116: ForumSystem reference line 0116
+- FieldRef 0117: ForumSystem reference line 0117
+- FieldRef 0118: ForumSystem reference line 0118
+- FieldRef 0119: ForumSystem reference line 0119
+- FieldRef 0120: ForumSystem reference line 0120
+- FieldRef 0121: ForumSystem reference line 0121
+- FieldRef 0122: ForumSystem reference line 0122
+- FieldRef 0123: ForumSystem reference line 0123
+- FieldRef 0124: ForumSystem reference line 0124
+- FieldRef 0125: ForumSystem reference line 0125
+- FieldRef 0126: ForumSystem reference line 0126
+- FieldRef 0127: ForumSystem reference line 0127
+- FieldRef 0128: ForumSystem reference line 0128
+- FieldRef 0129: ForumSystem reference line 0129
+- FieldRef 0130: ForumSystem reference line 0130
+- FieldRef 0131: ForumSystem reference line 0131
+- FieldRef 0132: ForumSystem reference line 0132
+- FieldRef 0133: ForumSystem reference line 0133
+- FieldRef 0134: ForumSystem reference line 0134
+- FieldRef 0135: ForumSystem reference line 0135
+- FieldRef 0136: ForumSystem reference line 0136
+- FieldRef 0137: ForumSystem reference line 0137
+- FieldRef 0138: ForumSystem reference line 0138
+- FieldRef 0139: ForumSystem reference line 0139
+- FieldRef 0140: ForumSystem reference line 0140
+- FieldRef 0141: ForumSystem reference line 0141
+- FieldRef 0142: ForumSystem reference line 0142
+- FieldRef 0143: ForumSystem reference line 0143
+- FieldRef 0144: ForumSystem reference line 0144
+- FieldRef 0145: ForumSystem reference line 0145
+- FieldRef 0146: ForumSystem reference line 0146
+- FieldRef 0147: ForumSystem reference line 0147
+- FieldRef 0148: ForumSystem reference line 0148
+- FieldRef 0149: ForumSystem reference line 0149
+- FieldRef 0150: ForumSystem reference line 0150
+- FieldRef 0151: ForumSystem reference line 0151
+- FieldRef 0152: ForumSystem reference line 0152
+- FieldRef 0153: ForumSystem reference line 0153
+- FieldRef 0154: ForumSystem reference line 0154
+- FieldRef 0155: ForumSystem reference line 0155
+- FieldRef 0156: ForumSystem reference line 0156
+- FieldRef 0157: ForumSystem reference line 0157
+- FieldRef 0158: ForumSystem reference line 0158
+- FieldRef 0159: ForumSystem reference line 0159
+- FieldRef 0160: ForumSystem reference line 0160
+- FieldRef 0161: ForumSystem reference line 0161
+- FieldRef 0162: ForumSystem reference line 0162
+- FieldRef 0163: ForumSystem reference line 0163
+- FieldRef 0164: ForumSystem reference line 0164
+- FieldRef 0165: ForumSystem reference line 0165
+- FieldRef 0166: ForumSystem reference line 0166
+- FieldRef 0167: ForumSystem reference line 0167
+- FieldRef 0168: ForumSystem reference line 0168
+- FieldRef 0169: ForumSystem reference line 0169
+- FieldRef 0170: ForumSystem reference line 0170
+- FieldRef 0171: ForumSystem reference line 0171
+- FieldRef 0172: ForumSystem reference line 0172
+- FieldRef 0173: ForumSystem reference line 0173
+- FieldRef 0174: ForumSystem reference line 0174
+- FieldRef 0175: ForumSystem reference line 0175
+- FieldRef 0176: ForumSystem reference line 0176
+- FieldRef 0177: ForumSystem reference line 0177
+- FieldRef 0178: ForumSystem reference line 0178
+- FieldRef 0179: ForumSystem reference line 0179
+- FieldRef 0180: ForumSystem reference line 0180
+- FieldRef 0181: ForumSystem reference line 0181
+- FieldRef 0182: ForumSystem reference line 0182
+- FieldRef 0183: ForumSystem reference line 0183
+- FieldRef 0184: ForumSystem reference line 0184
+- FieldRef 0185: ForumSystem reference line 0185
+- FieldRef 0186: ForumSystem reference line 0186
+- FieldRef 0187: ForumSystem reference line 0187
+- FieldRef 0188: ForumSystem reference line 0188
+- FieldRef 0189: ForumSystem reference line 0189
+- FieldRef 0190: ForumSystem reference line 0190
+- FieldRef 0191: ForumSystem reference line 0191
+- FieldRef 0192: ForumSystem reference line 0192
+- FieldRef 0193: ForumSystem reference line 0193
+- FieldRef 0194: ForumSystem reference line 0194
+- FieldRef 0195: ForumSystem reference line 0195
+- FieldRef 0196: ForumSystem reference line 0196
+- FieldRef 0197: ForumSystem reference line 0197
+- FieldRef 0198: ForumSystem reference line 0198
+- FieldRef 0199: ForumSystem reference line 0199
+- FieldRef 0200: ForumSystem reference line 0200
+- FieldRef 0201: ForumSystem reference line 0201
+- FieldRef 0202: ForumSystem reference line 0202
+- FieldRef 0203: ForumSystem reference line 0203
+- FieldRef 0204: ForumSystem reference line 0204
+- FieldRef 0205: ForumSystem reference line 0205
+- FieldRef 0206: ForumSystem reference line 0206
+- FieldRef 0207: ForumSystem reference line 0207
+- FieldRef 0208: ForumSystem reference line 0208
+- FieldRef 0209: ForumSystem reference line 0209
+- FieldRef 0210: ForumSystem reference line 0210
+- FieldRef 0211: ForumSystem reference line 0211
+- FieldRef 0212: ForumSystem reference line 0212
+- FieldRef 0213: ForumSystem reference line 0213
+- FieldRef 0214: ForumSystem reference line 0214
+- FieldRef 0215: ForumSystem reference line 0215
+- FieldRef 0216: ForumSystem reference line 0216
+- FieldRef 0217: ForumSystem reference line 0217
+- FieldRef 0218: ForumSystem reference line 0218
+- FieldRef 0219: ForumSystem reference line 0219
+- FieldRef 0220: ForumSystem reference line 0220
+- FieldRef 0221: ForumSystem reference line 0221
+- FieldRef 0222: ForumSystem reference line 0222
+- FieldRef 0223: ForumSystem reference line 0223
+- FieldRef 0224: ForumSystem reference line 0224
+- FieldRef 0225: ForumSystem reference line 0225
+- FieldRef 0226: ForumSystem reference line 0226
+- FieldRef 0227: ForumSystem reference line 0227
+- FieldRef 0228: ForumSystem reference line 0228
+- FieldRef 0229: ForumSystem reference line 0229
+- FieldRef 0230: ForumSystem reference line 0230
+- FieldRef 0231: ForumSystem reference line 0231
+- FieldRef 0232: ForumSystem reference line 0232
+- FieldRef 0233: ForumSystem reference line 0233
+- FieldRef 0234: ForumSystem reference line 0234
+- FieldRef 0235: ForumSystem reference line 0235
+- FieldRef 0236: ForumSystem reference line 0236
+- FieldRef 0237: ForumSystem reference line 0237
+- FieldRef 0238: ForumSystem reference line 0238
+- FieldRef 0239: ForumSystem reference line 0239
+- FieldRef 0240: ForumSystem reference line 0240
+- FieldRef 0241: ForumSystem reference line 0241
+- FieldRef 0242: ForumSystem reference line 0242
+- FieldRef 0243: ForumSystem reference line 0243
+- FieldRef 0244: ForumSystem reference line 0244
+- FieldRef 0245: ForumSystem reference line 0245
+- FieldRef 0246: ForumSystem reference line 0246
+- FieldRef 0247: ForumSystem reference line 0247
+- FieldRef 0248: ForumSystem reference line 0248
+- FieldRef 0249: ForumSystem reference line 0249
+- FieldRef 0250: ForumSystem reference line 0250
+- FieldRef 0251: ForumSystem reference line 0251
+- FieldRef 0252: ForumSystem reference line 0252
+- FieldRef 0253: ForumSystem reference line 0253
+- FieldRef 0254: ForumSystem reference line 0254
+- FieldRef 0255: ForumSystem reference line 0255
+- FieldRef 0256: ForumSystem reference line 0256
+- FieldRef 0257: ForumSystem reference line 0257
+- FieldRef 0258: ForumSystem reference line 0258
+- FieldRef 0259: ForumSystem reference line 0259
+- FieldRef 0260: ForumSystem reference line 0260
+- FieldRef 0261: ForumSystem reference line 0261
+- FieldRef 0262: ForumSystem reference line 0262
+- FieldRef 0263: ForumSystem reference line 0263
+- FieldRef 0264: ForumSystem reference line 0264
+- FieldRef 0265: ForumSystem reference line 0265
+- FieldRef 0266: ForumSystem reference line 0266
+- FieldRef 0267: ForumSystem reference line 0267
+- FieldRef 0268: ForumSystem reference line 0268
+- FieldRef 0269: ForumSystem reference line 0269
+- FieldRef 0270: ForumSystem reference line 0270
+- FieldRef 0271: ForumSystem reference line 0271
+- FieldRef 0272: ForumSystem reference line 0272
+- FieldRef 0273: ForumSystem reference line 0273
+- FieldRef 0274: ForumSystem reference line 0274
+- FieldRef 0275: ForumSystem reference line 0275
+- FieldRef 0276: ForumSystem reference line 0276
+- FieldRef 0277: ForumSystem reference line 0277
+- FieldRef 0278: ForumSystem reference line 0278
+- FieldRef 0279: ForumSystem reference line 0279
+- FieldRef 0280: ForumSystem reference line 0280
+- FieldRef 0281: ForumSystem reference line 0281
+- FieldRef 0282: ForumSystem reference line 0282
+- FieldRef 0283: ForumSystem reference line 0283
+- FieldRef 0284: ForumSystem reference line 0284
+- FieldRef 0285: ForumSystem reference line 0285
+- FieldRef 0286: ForumSystem reference line 0286
+- FieldRef 0287: ForumSystem reference line 0287
+- FieldRef 0288: ForumSystem reference line 0288
+- FieldRef 0289: ForumSystem reference line 0289
+- FieldRef 0290: ForumSystem reference line 0290
+- FieldRef 0291: ForumSystem reference line 0291
+- FieldRef 0292: ForumSystem reference line 0292
+- FieldRef 0293: ForumSystem reference line 0293
+- FieldRef 0294: ForumSystem reference line 0294
+- FieldRef 0295: ForumSystem reference line 0295
+- FieldRef 0296: ForumSystem reference line 0296
+- FieldRef 0297: ForumSystem reference line 0297
+- FieldRef 0298: ForumSystem reference line 0298
+- FieldRef 0299: ForumSystem reference line 0299
+- FieldRef 0300: ForumSystem reference line 0300
+- FieldRef 0301: ForumSystem reference line 0301
+- FieldRef 0302: ForumSystem reference line 0302
+- FieldRef 0303: ForumSystem reference line 0303
+- FieldRef 0304: ForumSystem reference line 0304
+- FieldRef 0305: ForumSystem reference line 0305
+- FieldRef 0306: ForumSystem reference line 0306
+- FieldRef 0307: ForumSystem reference line 0307
+- FieldRef 0308: ForumSystem reference line 0308
+- FieldRef 0309: ForumSystem reference line 0309
+- FieldRef 0310: ForumSystem reference line 0310
+- FieldRef 0311: ForumSystem reference line 0311
+- FieldRef 0312: ForumSystem reference line 0312
+- FieldRef 0313: ForumSystem reference line 0313
+- FieldRef 0314: ForumSystem reference line 0314
+- FieldRef 0315: ForumSystem reference line 0315
+- FieldRef 0316: ForumSystem reference line 0316
+- FieldRef 0317: ForumSystem reference line 0317
+- FieldRef 0318: ForumSystem reference line 0318
+- FieldRef 0319: ForumSystem reference line 0319
+- FieldRef 0320: ForumSystem reference line 0320
+- FieldRef 0321: ForumSystem reference line 0321
+- FieldRef 0322: ForumSystem reference line 0322
+- FieldRef 0323: ForumSystem reference line 0323
+- FieldRef 0324: ForumSystem reference line 0324
+- FieldRef 0325: ForumSystem reference line 0325
+- FieldRef 0326: ForumSystem reference line 0326
+- FieldRef 0327: ForumSystem reference line 0327
+- FieldRef 0328: ForumSystem reference line 0328
+- FieldRef 0329: ForumSystem reference line 0329
+- FieldRef 0330: ForumSystem reference line 0330
+- FieldRef 0331: ForumSystem reference line 0331
+- FieldRef 0332: ForumSystem reference line 0332
+- FieldRef 0333: ForumSystem reference line 0333
+- FieldRef 0334: ForumSystem reference line 0334
+- FieldRef 0335: ForumSystem reference line 0335
+- FieldRef 0336: ForumSystem reference line 0336
+- FieldRef 0337: ForumSystem reference line 0337
+- FieldRef 0338: ForumSystem reference line 0338
+- FieldRef 0339: ForumSystem reference line 0339
+- FieldRef 0340: ForumSystem reference line 0340
+- FieldRef 0341: ForumSystem reference line 0341
+- FieldRef 0342: ForumSystem reference line 0342
+- FieldRef 0343: ForumSystem reference line 0343
+- FieldRef 0344: ForumSystem reference line 0344
+- FieldRef 0345: ForumSystem reference line 0345
+- FieldRef 0346: ForumSystem reference line 0346
+- FieldRef 0347: ForumSystem reference line 0347
+- FieldRef 0348: ForumSystem reference line 0348
+- FieldRef 0349: ForumSystem reference line 0349
+- FieldRef 0350: ForumSystem reference line 0350
+- FieldRef 0351: ForumSystem reference line 0351
+- FieldRef 0352: ForumSystem reference line 0352
+- FieldRef 0353: ForumSystem reference line 0353
+- FieldRef 0354: ForumSystem reference line 0354
+- FieldRef 0355: ForumSystem reference line 0355
+- FieldRef 0356: ForumSystem reference line 0356
+- FieldRef 0357: ForumSystem reference line 0357
+- FieldRef 0358: ForumSystem reference line 0358
+- FieldRef 0359: ForumSystem reference line 0359
+- FieldRef 0360: ForumSystem reference line 0360
+- FieldRef 0361: ForumSystem reference line 0361
+- FieldRef 0362: ForumSystem reference line 0362
+- FieldRef 0363: ForumSystem reference line 0363
+- FieldRef 0364: ForumSystem reference line 0364
+- FieldRef 0365: ForumSystem reference line 0365
+- FieldRef 0366: ForumSystem reference line 0366
+- FieldRef 0367: ForumSystem reference line 0367
+- FieldRef 0368: ForumSystem reference line 0368
+- FieldRef 0369: ForumSystem reference line 0369
+- FieldRef 0370: ForumSystem reference line 0370
+- FieldRef 0371: ForumSystem reference line 0371
+- FieldRef 0372: ForumSystem reference line 0372
+- FieldRef 0373: ForumSystem reference line 0373
+- FieldRef 0374: ForumSystem reference line 0374
+- FieldRef 0375: ForumSystem reference line 0375
+- FieldRef 0376: ForumSystem reference line 0376
+- FieldRef 0377: ForumSystem reference line 0377
+- FieldRef 0378: ForumSystem reference line 0378
+- FieldRef 0379: ForumSystem reference line 0379
+- FieldRef 0380: ForumSystem reference line 0380
+- FieldRef 0381: ForumSystem reference line 0381
+- FieldRef 0382: ForumSystem reference line 0382
+- FieldRef 0383: ForumSystem reference line 0383
+- FieldRef 0384: ForumSystem reference line 0384
+- FieldRef 0385: ForumSystem reference line 0385
+- FieldRef 0386: ForumSystem reference line 0386
+- FieldRef 0387: ForumSystem reference line 0387
+- FieldRef 0388: ForumSystem reference line 0388
+- FieldRef 0389: ForumSystem reference line 0389
+- FieldRef 0390: ForumSystem reference line 0390
+- FieldRef 0391: ForumSystem reference line 0391
+- FieldRef 0392: ForumSystem reference line 0392
+- FieldRef 0393: ForumSystem reference line 0393
+- FieldRef 0394: ForumSystem reference line 0394
+- FieldRef 0395: ForumSystem reference line 0395
+- FieldRef 0396: ForumSystem reference line 0396
+- FieldRef 0397: ForumSystem reference line 0397
+- FieldRef 0398: ForumSystem reference line 0398
+- FieldRef 0399: ForumSystem reference line 0399
+- FieldRef 0400: ForumSystem reference line 0400
+- FieldRef 0401: ForumSystem reference line 0401
+- FieldRef 0402: ForumSystem reference line 0402
+- FieldRef 0403: ForumSystem reference line 0403
+- FieldRef 0404: ForumSystem reference line 0404
+- FieldRef 0405: ForumSystem reference line 0405
+- FieldRef 0406: ForumSystem reference line 0406
+- FieldRef 0407: ForumSystem reference line 0407
+- FieldRef 0408: ForumSystem reference line 0408
+- FieldRef 0409: ForumSystem reference line 0409
+- FieldRef 0410: ForumSystem reference line 0410
+- FieldRef 0411: ForumSystem reference line 0411
+- FieldRef 0412: ForumSystem reference line 0412
+- FieldRef 0413: ForumSystem reference line 0413
+- FieldRef 0414: ForumSystem reference line 0414
+- FieldRef 0415: ForumSystem reference line 0415
+- FieldRef 0416: ForumSystem reference line 0416
+- FieldRef 0417: ForumSystem reference line 0417
+- FieldRef 0418: ForumSystem reference line 0418
+- FieldRef 0419: ForumSystem reference line 0419
+- FieldRef 0420: ForumSystem reference line 0420
+- FieldRef 0421: ForumSystem reference line 0421
+- FieldRef 0422: ForumSystem reference line 0422
+- FieldRef 0423: ForumSystem reference line 0423
+- FieldRef 0424: ForumSystem reference line 0424
+- FieldRef 0425: ForumSystem reference line 0425
+- FieldRef 0426: ForumSystem reference line 0426
+- FieldRef 0427: ForumSystem reference line 0427
+- FieldRef 0428: ForumSystem reference line 0428
+- FieldRef 0429: ForumSystem reference line 0429
+- FieldRef 0430: ForumSystem reference line 0430
+- FieldRef 0431: ForumSystem reference line 0431
+- FieldRef 0432: ForumSystem reference line 0432
+- FieldRef 0433: ForumSystem reference line 0433
+- FieldRef 0434: ForumSystem reference line 0434
+- FieldRef 0435: ForumSystem reference line 0435
+- FieldRef 0436: ForumSystem reference line 0436
+- FieldRef 0437: ForumSystem reference line 0437
+- FieldRef 0438: ForumSystem reference line 0438
+- FieldRef 0439: ForumSystem reference line 0439
+- FieldRef 0440: ForumSystem reference line 0440
+- FieldRef 0441: ForumSystem reference line 0441
+- FieldRef 0442: ForumSystem reference line 0442
+- FieldRef 0443: ForumSystem reference line 0443
+- FieldRef 0444: ForumSystem reference line 0444
+- FieldRef 0445: ForumSystem reference line 0445
+- FieldRef 0446: ForumSystem reference line 0446
+- FieldRef 0447: ForumSystem reference line 0447
+- FieldRef 0448: ForumSystem reference line 0448
+- FieldRef 0449: ForumSystem reference line 0449
+- FieldRef 0450: ForumSystem reference line 0450
+- FieldRef 0451: ForumSystem reference line 0451
+- FieldRef 0452: ForumSystem reference line 0452
+- FieldRef 0453: ForumSystem reference line 0453
+- FieldRef 0454: ForumSystem reference line 0454
+- FieldRef 0455: ForumSystem reference line 0455
+- FieldRef 0456: ForumSystem reference line 0456
+- FieldRef 0457: ForumSystem reference line 0457
+- FieldRef 0458: ForumSystem reference line 0458
+- FieldRef 0459: ForumSystem reference line 0459
+- FieldRef 0460: ForumSystem reference line 0460
+- FieldRef 0461: ForumSystem reference line 0461
+- FieldRef 0462: ForumSystem reference line 0462
+- FieldRef 0463: ForumSystem reference line 0463
+- FieldRef 0464: ForumSystem reference line 0464
+- FieldRef 0465: ForumSystem reference line 0465
+- FieldRef 0466: ForumSystem reference line 0466
+- FieldRef 0467: ForumSystem reference line 0467
+- FieldRef 0468: ForumSystem reference line 0468
+- FieldRef 0469: ForumSystem reference line 0469
+- FieldRef 0470: ForumSystem reference line 0470
+- FieldRef 0471: ForumSystem reference line 0471
+- FieldRef 0472: ForumSystem reference line 0472
+- FieldRef 0473: ForumSystem reference line 0473
+- FieldRef 0474: ForumSystem reference line 0474
+- FieldRef 0475: ForumSystem reference line 0475
+- FieldRef 0476: ForumSystem reference line 0476
+- FieldRef 0477: ForumSystem reference line 0477
+- FieldRef 0478: ForumSystem reference line 0478
+- FieldRef 0479: ForumSystem reference line 0479
+- FieldRef 0480: ForumSystem reference line 0480
+- FieldRef 0481: ForumSystem reference line 0481
+- FieldRef 0482: ForumSystem reference line 0482
+- FieldRef 0483: ForumSystem reference line 0483
+- FieldRef 0484: ForumSystem reference line 0484
+- FieldRef 0485: ForumSystem reference line 0485
+- FieldRef 0486: ForumSystem reference line 0486
+- FieldRef 0487: ForumSystem reference line 0487
+- FieldRef 0488: ForumSystem reference line 0488
+- FieldRef 0489: ForumSystem reference line 0489
+- FieldRef 0490: ForumSystem reference line 0490
+- FieldRef 0491: ForumSystem reference line 0491
+- FieldRef 0492: ForumSystem reference line 0492
+- FieldRef 0493: ForumSystem reference line 0493
+- FieldRef 0494: ForumSystem reference line 0494
+- FieldRef 0495: ForumSystem reference line 0495
+- FieldRef 0496: ForumSystem reference line 0496
+- FieldRef 0497: ForumSystem reference line 0497
+- FieldRef 0498: ForumSystem reference line 0498
+- FieldRef 0499: ForumSystem reference line 0499
+- FieldRef 0500: ForumSystem reference line 0500
+- FieldRef 0501: ForumSystem reference line 0501
+- FieldRef 0502: ForumSystem reference line 0502
+- FieldRef 0503: ForumSystem reference line 0503
+- FieldRef 0504: ForumSystem reference line 0504
+- FieldRef 0505: ForumSystem reference line 0505
+- FieldRef 0506: ForumSystem reference line 0506
+- FieldRef 0507: ForumSystem reference line 0507
+- FieldRef 0508: ForumSystem reference line 0508
+- FieldRef 0509: ForumSystem reference line 0509
+- FieldRef 0510: ForumSystem reference line 0510
+- FieldRef 0511: ForumSystem reference line 0511
+- FieldRef 0512: ForumSystem reference line 0512
+- FieldRef 0513: ForumSystem reference line 0513
+- FieldRef 0514: ForumSystem reference line 0514
+- FieldRef 0515: ForumSystem reference line 0515
+- FieldRef 0516: ForumSystem reference line 0516
+- FieldRef 0517: ForumSystem reference line 0517
+- FieldRef 0518: ForumSystem reference line 0518
+- FieldRef 0519: ForumSystem reference line 0519
+- FieldRef 0520: ForumSystem reference line 0520
+- FieldRef 0521: ForumSystem reference line 0521
+- FieldRef 0522: ForumSystem reference line 0522
+- FieldRef 0523: ForumSystem reference line 0523
+- FieldRef 0524: ForumSystem reference line 0524
+- FieldRef 0525: ForumSystem reference line 0525
+- FieldRef 0526: ForumSystem reference line 0526
+- FieldRef 0527: ForumSystem reference line 0527
+- FieldRef 0528: ForumSystem reference line 0528
+- FieldRef 0529: ForumSystem reference line 0529
+- FieldRef 0530: ForumSystem reference line 0530
+- FieldRef 0531: ForumSystem reference line 0531
+- FieldRef 0532: ForumSystem reference line 0532
+- FieldRef 0533: ForumSystem reference line 0533
+- FieldRef 0534: ForumSystem reference line 0534
+- FieldRef 0535: ForumSystem reference line 0535
+- FieldRef 0536: ForumSystem reference line 0536
+- FieldRef 0537: ForumSystem reference line 0537
+- FieldRef 0538: ForumSystem reference line 0538
+- FieldRef 0539: ForumSystem reference line 0539
+- FieldRef 0540: ForumSystem reference line 0540
+- FieldRef 0541: ForumSystem reference line 0541
+- FieldRef 0542: ForumSystem reference line 0542
+- FieldRef 0543: ForumSystem reference line 0543
+- FieldRef 0544: ForumSystem reference line 0544
+- FieldRef 0545: ForumSystem reference line 0545
+- FieldRef 0546: ForumSystem reference line 0546
+- FieldRef 0547: ForumSystem reference line 0547
+- FieldRef 0548: ForumSystem reference line 0548
+- FieldRef 0549: ForumSystem reference line 0549
+- FieldRef 0550: ForumSystem reference line 0550
+- FieldRef 0551: ForumSystem reference line 0551
+- FieldRef 0552: ForumSystem reference line 0552
+- FieldRef 0553: ForumSystem reference line 0553
+- FieldRef 0554: ForumSystem reference line 0554
+- FieldRef 0555: ForumSystem reference line 0555
+- FieldRef 0556: ForumSystem reference line 0556
+- FieldRef 0557: ForumSystem reference line 0557
+- FieldRef 0558: ForumSystem reference line 0558
+- FieldRef 0559: ForumSystem reference line 0559
+- FieldRef 0560: ForumSystem reference line 0560
+- FieldRef 0561: ForumSystem reference line 0561
+- FieldRef 0562: ForumSystem reference line 0562
+- FieldRef 0563: ForumSystem reference line 0563
+- FieldRef 0564: ForumSystem reference line 0564
+- FieldRef 0565: ForumSystem reference line 0565
+- FieldRef 0566: ForumSystem reference line 0566
+- FieldRef 0567: ForumSystem reference line 0567
+- FieldRef 0568: ForumSystem reference line 0568
+- FieldRef 0569: ForumSystem reference line 0569
+- FieldRef 0570: ForumSystem reference line 0570
+- FieldRef 0571: ForumSystem reference line 0571
+- FieldRef 0572: ForumSystem reference line 0572
+- FieldRef 0573: ForumSystem reference line 0573
+- FieldRef 0574: ForumSystem reference line 0574
+- FieldRef 0575: ForumSystem reference line 0575
+- FieldRef 0576: ForumSystem reference line 0576
+- FieldRef 0577: ForumSystem reference line 0577
+- FieldRef 0578: ForumSystem reference line 0578
+- FieldRef 0579: ForumSystem reference line 0579
+- FieldRef 0580: ForumSystem reference line 0580
+- FieldRef 0581: ForumSystem reference line 0581
+- FieldRef 0582: ForumSystem reference line 0582
+- FieldRef 0583: ForumSystem reference line 0583
+- FieldRef 0584: ForumSystem reference line 0584
+- FieldRef 0585: ForumSystem reference line 0585
+- FieldRef 0586: ForumSystem reference line 0586
+- FieldRef 0587: ForumSystem reference line 0587
+- FieldRef 0588: ForumSystem reference line 0588
+- FieldRef 0589: ForumSystem reference line 0589
+- FieldRef 0590: ForumSystem reference line 0590
+- FieldRef 0591: ForumSystem reference line 0591
+- FieldRef 0592: ForumSystem reference line 0592
+- FieldRef 0593: ForumSystem reference line 0593
+- FieldRef 0594: ForumSystem reference line 0594
+- FieldRef 0595: ForumSystem reference line 0595
+- FieldRef 0596: ForumSystem reference line 0596
+- FieldRef 0597: ForumSystem reference line 0597
+- FieldRef 0598: ForumSystem reference line 0598
+- FieldRef 0599: ForumSystem reference line 0599
+- FieldRef 0600: ForumSystem reference line 0600
+- FieldRef 0601: ForumSystem reference line 0601
+- FieldRef 0602: ForumSystem reference line 0602
+- FieldRef 0603: ForumSystem reference line 0603
+- FieldRef 0604: ForumSystem reference line 0604
+- FieldRef 0605: ForumSystem reference line 0605
+- FieldRef 0606: ForumSystem reference line 0606
+- FieldRef 0607: ForumSystem reference line 0607
+- FieldRef 0608: ForumSystem reference line 0608
+- FieldRef 0609: ForumSystem reference line 0609
+- FieldRef 0610: ForumSystem reference line 0610
+- FieldRef 0611: ForumSystem reference line 0611
+- FieldRef 0612: ForumSystem reference line 0612
+- FieldRef 0613: ForumSystem reference line 0613
+- FieldRef 0614: ForumSystem reference line 0614
+- FieldRef 0615: ForumSystem reference line 0615
+- FieldRef 0616: ForumSystem reference line 0616
+- FieldRef 0617: ForumSystem reference line 0617
+- FieldRef 0618: ForumSystem reference line 0618
+- FieldRef 0619: ForumSystem reference line 0619
+- FieldRef 0620: ForumSystem reference line 0620
+- FieldRef 0621: ForumSystem reference line 0621
+- FieldRef 0622: ForumSystem reference line 0622
+- FieldRef 0623: ForumSystem reference line 0623
+- FieldRef 0624: ForumSystem reference line 0624
+- FieldRef 0625: ForumSystem reference line 0625
+- FieldRef 0626: ForumSystem reference line 0626
+- FieldRef 0627: ForumSystem reference line 0627
+- FieldRef 0628: ForumSystem reference line 0628
+- FieldRef 0629: ForumSystem reference line 0629
+- FieldRef 0630: ForumSystem reference line 0630
+- FieldRef 0631: ForumSystem reference line 0631
+- FieldRef 0632: ForumSystem reference line 0632
+- FieldRef 0633: ForumSystem reference line 0633
+- FieldRef 0634: ForumSystem reference line 0634
+- FieldRef 0635: ForumSystem reference line 0635
+- FieldRef 0636: ForumSystem reference line 0636
+- FieldRef 0637: ForumSystem reference line 0637
+- FieldRef 0638: ForumSystem reference line 0638
+- FieldRef 0639: ForumSystem reference line 0639
+- FieldRef 0640: ForumSystem reference line 0640
+- FieldRef 0641: ForumSystem reference line 0641
+- FieldRef 0642: ForumSystem reference line 0642
+- FieldRef 0643: ForumSystem reference line 0643
+- FieldRef 0644: ForumSystem reference line 0644
+- FieldRef 0645: ForumSystem reference line 0645
+- FieldRef 0646: ForumSystem reference line 0646
+- FieldRef 0647: ForumSystem reference line 0647
+- FieldRef 0648: ForumSystem reference line 0648
+- FieldRef 0649: ForumSystem reference line 0649
+- FieldRef 0650: ForumSystem reference line 0650
+- FieldRef 0651: ForumSystem reference line 0651
+- FieldRef 0652: ForumSystem reference line 0652
+- FieldRef 0653: ForumSystem reference line 0653
+- FieldRef 0654: ForumSystem reference line 0654
+- FieldRef 0655: ForumSystem reference line 0655
+- FieldRef 0656: ForumSystem reference line 0656
+- FieldRef 0657: ForumSystem reference line 0657
+- FieldRef 0658: ForumSystem reference line 0658
+- FieldRef 0659: ForumSystem reference line 0659
+- FieldRef 0660: ForumSystem reference line 0660
+- FieldRef 0661: ForumSystem reference line 0661
+- FieldRef 0662: ForumSystem reference line 0662
+- FieldRef 0663: ForumSystem reference line 0663
+- FieldRef 0664: ForumSystem reference line 0664
+- FieldRef 0665: ForumSystem reference line 0665
+- FieldRef 0666: ForumSystem reference line 0666
+- FieldRef 0667: ForumSystem reference line 0667
+- FieldRef 0668: ForumSystem reference line 0668
+- FieldRef 0669: ForumSystem reference line 0669
+- FieldRef 0670: ForumSystem reference line 0670
+- FieldRef 0671: ForumSystem reference line 0671
+- FieldRef 0672: ForumSystem reference line 0672
+- FieldRef 0673: ForumSystem reference line 0673
+- FieldRef 0674: ForumSystem reference line 0674
+- FieldRef 0675: ForumSystem reference line 0675
+- FieldRef 0676: ForumSystem reference line 0676
+- FieldRef 0677: ForumSystem reference line 0677
+- FieldRef 0678: ForumSystem reference line 0678
+- FieldRef 0679: ForumSystem reference line 0679
+- FieldRef 0680: ForumSystem reference line 0680
+- FieldRef 0681: ForumSystem reference line 0681
+- FieldRef 0682: ForumSystem reference line 0682
+- FieldRef 0683: ForumSystem reference line 0683
+- FieldRef 0684: ForumSystem reference line 0684
+- FieldRef 0685: ForumSystem reference line 0685
+- FieldRef 0686: ForumSystem reference line 0686
+- FieldRef 0687: ForumSystem reference line 0687
+- FieldRef 0688: ForumSystem reference line 0688
+- FieldRef 0689: ForumSystem reference line 0689
+- FieldRef 0690: ForumSystem reference line 0690
+- FieldRef 0691: ForumSystem reference line 0691
+- FieldRef 0692: ForumSystem reference line 0692
+- FieldRef 0693: ForumSystem reference line 0693
+- FieldRef 0694: ForumSystem reference line 0694
+- FieldRef 0695: ForumSystem reference line 0695
+- FieldRef 0696: ForumSystem reference line 0696
+- FieldRef 0697: ForumSystem reference line 0697
+- FieldRef 0698: ForumSystem reference line 0698
+- FieldRef 0699: ForumSystem reference line 0699
+- FieldRef 0700: ForumSystem reference line 0700
+- FieldRef 0701: ForumSystem reference line 0701
+- FieldRef 0702: ForumSystem reference line 0702
+- FieldRef 0703: ForumSystem reference line 0703
+- FieldRef 0704: ForumSystem reference line 0704
+- FieldRef 0705: ForumSystem reference line 0705
+- FieldRef 0706: ForumSystem reference line 0706
+- FieldRef 0707: ForumSystem reference line 0707
+- FieldRef 0708: ForumSystem reference line 0708
+- FieldRef 0709: ForumSystem reference line 0709
+- FieldRef 0710: ForumSystem reference line 0710
+- FieldRef 0711: ForumSystem reference line 0711
+- FieldRef 0712: ForumSystem reference line 0712
+- FieldRef 0713: ForumSystem reference line 0713
+- FieldRef 0714: ForumSystem reference line 0714
+- FieldRef 0715: ForumSystem reference line 0715
+- FieldRef 0716: ForumSystem reference line 0716
+- FieldRef 0717: ForumSystem reference line 0717
+- FieldRef 0718: ForumSystem reference line 0718
+- FieldRef 0719: ForumSystem reference line 0719
+- FieldRef 0720: ForumSystem reference line 0720
+- FieldRef 0721: ForumSystem reference line 0721
+- FieldRef 0722: ForumSystem reference line 0722
+- FieldRef 0723: ForumSystem reference line 0723
+- FieldRef 0724: ForumSystem reference line 0724
+- FieldRef 0725: ForumSystem reference line 0725
+- FieldRef 0726: ForumSystem reference line 0726
+- FieldRef 0727: ForumSystem reference line 0727
+- FieldRef 0728: ForumSystem reference line 0728
+- FieldRef 0729: ForumSystem reference line 0729
+- FieldRef 0730: ForumSystem reference line 0730
+- FieldRef 0731: ForumSystem reference line 0731
+- FieldRef 0732: ForumSystem reference line 0732
+- FieldRef 0733: ForumSystem reference line 0733
+- FieldRef 0734: ForumSystem reference line 0734
+- FieldRef 0735: ForumSystem reference line 0735
+- FieldRef 0736: ForumSystem reference line 0736
+- FieldRef 0737: ForumSystem reference line 0737
+- FieldRef 0738: ForumSystem reference line 0738
+- FieldRef 0739: ForumSystem reference line 0739
+- FieldRef 0740: ForumSystem reference line 0740
+- FieldRef 0741: ForumSystem reference line 0741
+- FieldRef 0742: ForumSystem reference line 0742
+- FieldRef 0743: ForumSystem reference line 0743
+- FieldRef 0744: ForumSystem reference line 0744
+- FieldRef 0745: ForumSystem reference line 0745
+- FieldRef 0746: ForumSystem reference line 0746
+- FieldRef 0747: ForumSystem reference line 0747
+- FieldRef 0748: ForumSystem reference line 0748
+- FieldRef 0749: ForumSystem reference line 0749
+- FieldRef 0750: ForumSystem reference line 0750
+- FieldRef 0751: ForumSystem reference line 0751
+- FieldRef 0752: ForumSystem reference line 0752
+- FieldRef 0753: ForumSystem reference line 0753
+- FieldRef 0754: ForumSystem reference line 0754
+- FieldRef 0755: ForumSystem reference line 0755
+- FieldRef 0756: ForumSystem reference line 0756
+- FieldRef 0757: ForumSystem reference line 0757
+- FieldRef 0758: ForumSystem reference line 0758
+- FieldRef 0759: ForumSystem reference line 0759
+- FieldRef 0760: ForumSystem reference line 0760
+- FieldRef 0761: ForumSystem reference line 0761
+- FieldRef 0762: ForumSystem reference line 0762
+- FieldRef 0763: ForumSystem reference line 0763
+- FieldRef 0764: ForumSystem reference line 0764
+- FieldRef 0765: ForumSystem reference line 0765
+- FieldRef 0766: ForumSystem reference line 0766
+- FieldRef 0767: ForumSystem reference line 0767
+- FieldRef 0768: ForumSystem reference line 0768
+- FieldRef 0769: ForumSystem reference line 0769
+- FieldRef 0770: ForumSystem reference line 0770
+- FieldRef 0771: ForumSystem reference line 0771
+- FieldRef 0772: ForumSystem reference line 0772
+- FieldRef 0773: ForumSystem reference line 0773
+- FieldRef 0774: ForumSystem reference line 0774
+- FieldRef 0775: ForumSystem reference line 0775
+- FieldRef 0776: ForumSystem reference line 0776
+- FieldRef 0777: ForumSystem reference line 0777
+- FieldRef 0778: ForumSystem reference line 0778
+- FieldRef 0779: ForumSystem reference line 0779
+- FieldRef 0780: ForumSystem reference line 0780
+- FieldRef 0781: ForumSystem reference line 0781
+- FieldRef 0782: ForumSystem reference line 0782
+- FieldRef 0783: ForumSystem reference line 0783
+- FieldRef 0784: ForumSystem reference line 0784
+- FieldRef 0785: ForumSystem reference line 0785
+- FieldRef 0786: ForumSystem reference line 0786
+- FieldRef 0787: ForumSystem reference line 0787
+- FieldRef 0788: ForumSystem reference line 0788
+- FieldRef 0789: ForumSystem reference line 0789
+- FieldRef 0790: ForumSystem reference line 0790
+- FieldRef 0791: ForumSystem reference line 0791
+- FieldRef 0792: ForumSystem reference line 0792
+- FieldRef 0793: ForumSystem reference line 0793
+- FieldRef 0794: ForumSystem reference line 0794
+- FieldRef 0795: ForumSystem reference line 0795
+- FieldRef 0796: ForumSystem reference line 0796
+- FieldRef 0797: ForumSystem reference line 0797
+- FieldRef 0798: ForumSystem reference line 0798
+- FieldRef 0799: ForumSystem reference line 0799
+- FieldRef 0800: ForumSystem reference line 0800
+- FieldRef 0801: ForumSystem reference line 0801
+- FieldRef 0802: ForumSystem reference line 0802
+- FieldRef 0803: ForumSystem reference line 0803
+- FieldRef 0804: ForumSystem reference line 0804
+- FieldRef 0805: ForumSystem reference line 0805
+- FieldRef 0806: ForumSystem reference line 0806
+- FieldRef 0807: ForumSystem reference line 0807
+- FieldRef 0808: ForumSystem reference line 0808
+- FieldRef 0809: ForumSystem reference line 0809
+- FieldRef 0810: ForumSystem reference line 0810
+- FieldRef 0811: ForumSystem reference line 0811
+- FieldRef 0812: ForumSystem reference line 0812
+- FieldRef 0813: ForumSystem reference line 0813
+- FieldRef 0814: ForumSystem reference line 0814
+- FieldRef 0815: ForumSystem reference line 0815
+- FieldRef 0816: ForumSystem reference line 0816
+- FieldRef 0817: ForumSystem reference line 0817
+- FieldRef 0818: ForumSystem reference line 0818
+- FieldRef 0819: ForumSystem reference line 0819
+- FieldRef 0820: ForumSystem reference line 0820
+- FieldRef 0821: ForumSystem reference line 0821
+- FieldRef 0822: ForumSystem reference line 0822
+- FieldRef 0823: ForumSystem reference line 0823
+- FieldRef 0824: ForumSystem reference line 0824
+- FieldRef 0825: ForumSystem reference line 0825
+- FieldRef 0826: ForumSystem reference line 0826
+- FieldRef 0827: ForumSystem reference line 0827
+- FieldRef 0828: ForumSystem reference line 0828
+- FieldRef 0829: ForumSystem reference line 0829
+- FieldRef 0830: ForumSystem reference line 0830
+- FieldRef 0831: ForumSystem reference line 0831
+- FieldRef 0832: ForumSystem reference line 0832
+- FieldRef 0833: ForumSystem reference line 0833
+- FieldRef 0834: ForumSystem reference line 0834
+- FieldRef 0835: ForumSystem reference line 0835
+- FieldRef 0836: ForumSystem reference line 0836
+- FieldRef 0837: ForumSystem reference line 0837
+- FieldRef 0838: ForumSystem reference line 0838
+- FieldRef 0839: ForumSystem reference line 0839
+- FieldRef 0840: ForumSystem reference line 0840
+- FieldRef 0841: ForumSystem reference line 0841
+- FieldRef 0842: ForumSystem reference line 0842
+- FieldRef 0843: ForumSystem reference line 0843
+- FieldRef 0844: ForumSystem reference line 0844
+- FieldRef 0845: ForumSystem reference line 0845
+- FieldRef 0846: ForumSystem reference line 0846
+- FieldRef 0847: ForumSystem reference line 0847
+- FieldRef 0848: ForumSystem reference line 0848
+- FieldRef 0849: ForumSystem reference line 0849
+- FieldRef 0850: ForumSystem reference line 0850
+- FieldRef 0851: ForumSystem reference line 0851
+- FieldRef 0852: ForumSystem reference line 0852
+- FieldRef 0853: ForumSystem reference line 0853
+- FieldRef 0854: ForumSystem reference line 0854
+- FieldRef 0855: ForumSystem reference line 0855
+- FieldRef 0856: ForumSystem reference line 0856
+- FieldRef 0857: ForumSystem reference line 0857
+- FieldRef 0858: ForumSystem reference line 0858
+- FieldRef 0859: ForumSystem reference line 0859
+- FieldRef 0860: ForumSystem reference line 0860
+- FieldRef 0861: ForumSystem reference line 0861
+- FieldRef 0862: ForumSystem reference line 0862
+- FieldRef 0863: ForumSystem reference line 0863
+- FieldRef 0864: ForumSystem reference line 0864
+- FieldRef 0865: ForumSystem reference line 0865
+- FieldRef 0866: ForumSystem reference line 0866
+- FieldRef 0867: ForumSystem reference line 0867
+- FieldRef 0868: ForumSystem reference line 0868
+- FieldRef 0869: ForumSystem reference line 0869
+- FieldRef 0870: ForumSystem reference line 0870
+- FieldRef 0871: ForumSystem reference line 0871
+- FieldRef 0872: ForumSystem reference line 0872
+- FieldRef 0873: ForumSystem reference line 0873
+- FieldRef 0874: ForumSystem reference line 0874
+- FieldRef 0875: ForumSystem reference line 0875
+- FieldRef 0876: ForumSystem reference line 0876
+- FieldRef 0877: ForumSystem reference line 0877
+- FieldRef 0878: ForumSystem reference line 0878
+- FieldRef 0879: ForumSystem reference line 0879
+- FieldRef 0880: ForumSystem reference line 0880
+- FieldRef 0881: ForumSystem reference line 0881
+- FieldRef 0882: ForumSystem reference line 0882
+- FieldRef 0883: ForumSystem reference line 0883
+- FieldRef 0884: ForumSystem reference line 0884
+- FieldRef 0885: ForumSystem reference line 0885
+- FieldRef 0886: ForumSystem reference line 0886
+- FieldRef 0887: ForumSystem reference line 0887
+- FieldRef 0888: ForumSystem reference line 0888
+- FieldRef 0889: ForumSystem reference line 0889
+- FieldRef 0890: ForumSystem reference line 0890
+- FieldRef 0891: ForumSystem reference line 0891
+- FieldRef 0892: ForumSystem reference line 0892
+- FieldRef 0893: ForumSystem reference line 0893
+- FieldRef 0894: ForumSystem reference line 0894
+- FieldRef 0895: ForumSystem reference line 0895
+- FieldRef 0896: ForumSystem reference line 0896
+- FieldRef 0897: ForumSystem reference line 0897
+- FieldRef 0898: ForumSystem reference line 0898
+- FieldRef 0899: ForumSystem reference line 0899
+- FieldRef 0900: ForumSystem reference line 0900

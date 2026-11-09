@@ -1,0 +1,885 @@
+diff --git a/internal/modules/access_points/handler/admin.go b/internal/modules/access_points/handler/admin.go
+index 62c0e1e..df54002 100644
+--- a/internal/modules/access_points/handler/admin.go
++++ b/internal/modules/access_points/handler/admin.go
+@@ -10,11 +10,22 @@ import (
+ 	"github.com/aystek/aystek-core/internal/modules/access_points/model"
+ 	"github.com/aystek/aystek-core/internal/modules/access_points/repository"
+ 	"github.com/aystek/aystek-core/internal/modules/access_points/service"
++	usersmodel "github.com/aystek/aystek-core/internal/modules/users/model"
+ 	"github.com/aystek/aystek-core/internal/platform/institutionfilter"
+ 	"github.com/gin-gonic/gin"
+ 	"go.mongodb.org/mongo-driver/bson/primitive"
+ )
+ 
++// isAPIClientCaller reports whether the current request went through the
++// device gateway (cmd/api/main.go's apiGatewayGroup, APIClientAuthRequired) —
++// "user_type" is set only there, from the verified token, never from the
++// request body or query. Used to gate the device-binding check in
++// RecordEvent/SettleTripCash/CancelBoardingTrip/RecordWalkOnCashEntry: a
++// human admin request is unaffected by it.
++func isAPIClientCaller(c *gin.Context) bool {
++	return c.GetString("user_type") == string(usersmodel.UserTypeAPIClient)
++}
++
+ type AdminHandler struct {
+ 	svc *service.Service
+ }
+@@ -238,9 +249,10 @@ func (h *AdminHandler) RecordEvent(c *gin.Context) {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+ 		return
+ 	}
++	input.CallerIsAPIClient = isAPIClientCaller(c)
+ 	ev, err := h.svc.RecordEvent(c.Request.Context(), id, input)
+ 	if err != nil {
+-		if errors.Is(err, service.ErrInstitutionMismatch) || errors.Is(err, service.ErrAccessBlocked) || errors.Is(err, service.ErrLibraryMembershipRequired) || errors.Is(err, service.ErrCorporateQuotaExceeded) {
++		if errors.Is(err, service.ErrInstitutionMismatch) || errors.Is(err, service.ErrAccessBlocked) || errors.Is(err, service.ErrLibraryMembershipRequired) || errors.Is(err, service.ErrCorporateQuotaExceeded) || errors.Is(err, service.ErrDeviceNotBoundToAccessPoint) {
+ 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+ 			return
+ 		}
+@@ -275,11 +287,16 @@ func (h *AdminHandler) SettleTripCash(c *gin.Context) {
+ 		return
+ 	}
+ 	ev, err := h.svc.SettleTripCash(c.Request.Context(), apID, tripID, service.CashSettlementInput{
+-		Memo:           req.Memo,
+-		IdempotencyKey: req.IdempotencyKey,
+-		ActorID:        c.GetString("userID"),
++		Memo:              req.Memo,
++		IdempotencyKey:    req.IdempotencyKey,
++		ActorID:           c.GetString("userID"),
++		CallerIsAPIClient: isAPIClientCaller(c),
+ 	})
+ 	if err != nil {
++		if errors.Is(err, service.ErrDeviceNotBoundToAccessPoint) {
++			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
++			return
++		}
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+ 		return
+ 	}
+@@ -300,7 +317,11 @@ func (h *AdminHandler) CancelBoardingTrip(c *gin.Context) {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tripId"})
+ 		return
+ 	}
+-	if err := h.svc.CancelBoardingTrip(c.Request.Context(), apID, tripID, c.GetString("userID")); err != nil {
++	if err := h.svc.CancelBoardingTrip(c.Request.Context(), apID, tripID, c.GetString("userID"), isAPIClientCaller(c)); err != nil {
++		if errors.Is(err, service.ErrDeviceNotBoundToAccessPoint) {
++			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
++			return
++		}
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+ 		return
+ 	}
+@@ -337,8 +358,13 @@ func (h *AdminHandler) RecordWalkOnCashEntry(c *gin.Context) {
+ 		Memo:              req.Memo,
+ 		IdempotencyKey:    req.IdempotencyKey,
+ 		ActorID:           c.GetString("userID"),
++		CallerIsAPIClient: isAPIClientCaller(c),
+ 	})
+ 	if err != nil {
++		if errors.Is(err, service.ErrDeviceNotBoundToAccessPoint) {
++			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
++			return
++		}
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+ 		return
+ 	}
+diff --git a/internal/modules/access_points/handler/device_binding_test.go b/internal/modules/access_points/handler/device_binding_test.go
+new file mode 100644
+index 0000000..a070df3
+--- /dev/null
++++ b/internal/modules/access_points/handler/device_binding_test.go
+@@ -0,0 +1,313 @@
++package handler
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/aystek/aystek-core/internal/modules/access_points/model"
++	"github.com/aystek/aystek-core/internal/modules/access_points/repository"
++	"github.com/aystek/aystek-core/internal/modules/access_points/service"
++	"github.com/gin-gonic/gin"
++	"go.mongodb.org/mongo-driver/bson/primitive"
++)
++
++// This file is the HTTP-level counterpart to
++// internal/modules/access_points/service/device_binding_test.go — it drives
++// the real AdminHandler.RecordEvent/SettleTripCash/CancelBoardingTrip/
++// RecordWalkOnCashEntry through gin, with a real *service.Service (backed by
++// minimal in-memory fakes of the two exported repository interfaces), to
++// check the actual HTTP status code AND, via the fake AccessEventRepository's
++// own insert count, that a rejected call never reaches the point of writing
++// anything — not just that the status code looks right.
++
++type fakeDeviceBindingAccessPointRepo struct {
++	points map[primitive.ObjectID]model.AccessPoint
++}
++
++func newFakeDeviceBindingAccessPointRepo() *fakeDeviceBindingAccessPointRepo {
++	return &fakeDeviceBindingAccessPointRepo{points: map[primitive.ObjectID]model.AccessPoint{}}
++}
++
++func (r *fakeDeviceBindingAccessPointRepo) seed(ap model.AccessPoint) primitive.ObjectID {
++	if ap.ID.IsZero() {
++		ap.ID = primitive.NewObjectID()
++	}
++	r.points[ap.ID] = ap
++	return ap.ID
++}
++
++func (r *fakeDeviceBindingAccessPointRepo) Insert(ctx context.Context, ap model.AccessPoint) (primitive.ObjectID, error) {
++	return r.seed(ap), nil
++}
++func (r *fakeDeviceBindingAccessPointRepo) Update(ctx context.Context, id primitive.ObjectID, ap model.AccessPoint) error {
++	r.points[id] = ap
++	return nil
++}
++func (r *fakeDeviceBindingAccessPointRepo) FindByID(ctx context.Context, id primitive.ObjectID) (*model.AccessPoint, error) {
++	ap, ok := r.points[id]
++	if !ok {
++		return nil, mongoNoDocuments{}
++	}
++	return &ap, nil
++}
++func (r *fakeDeviceBindingAccessPointRepo) FindByDeviceBinding(ctx context.Context, binding string) (*model.AccessPoint, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessPointRepo) AddDeviceBinding(ctx context.Context, id primitive.ObjectID, clientID string) error {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessPointRepo) List(ctx context.Context, filter repository.AccessPointListFilter) ([]model.AccessPoint, int64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessPointRepo) SoftDelete(ctx context.Context, id primitive.ObjectID) error {
++	panic("not used in this test")
++}
++
++// mongoNoDocuments stands in for mongo.ErrNoDocuments without importing the
++// driver here — RecordEvent only checks err != nil, never its identity.
++type mongoNoDocuments struct{}
++
++func (mongoNoDocuments) Error() string { return "not found" }
++
++type fakeDeviceBindingAccessEventRepo struct {
++	inserted []model.AccessEvent
++}
++
++func (r *fakeDeviceBindingAccessEventRepo) Insert(ctx context.Context, ev model.AccessEvent) (primitive.ObjectID, error) {
++	if ev.ID.IsZero() {
++		ev.ID = primitive.NewObjectID()
++	}
++	r.inserted = append(r.inserted, ev)
++	return ev.ID, nil
++}
++func (r *fakeDeviceBindingAccessEventRepo) FindByID(ctx context.Context, id primitive.ObjectID) (*model.AccessEvent, error) {
++	for _, ev := range r.inserted {
++		if ev.ID == id {
++			return &ev, nil
++		}
++	}
++	return nil, mongoNoDocuments{}
++}
++func (r *fakeDeviceBindingAccessEventRepo) FindByIdempotencyKey(ctx context.Context, key string) (*model.AccessEvent, error) {
++	return nil, mongoNoDocuments{}
++}
++func (r *fakeDeviceBindingAccessEventRepo) ListByAccessPoint(ctx context.Context, accessPointID primitive.ObjectID, filter repository.AccessEventListFilter) ([]model.AccessEvent, int64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) ListByPerson(ctx context.Context, personID primitive.ObjectID, filter repository.AccessEventListFilter) ([]model.AccessEvent, int64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) ListByTripAssignment(ctx context.Context, tripAssignmentID primitive.ObjectID, filter repository.AccessEventListFilter) ([]model.AccessEvent, int64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) UpdateRefundStatus(ctx context.Context, id primitive.ObjectID, refundedBy string) error {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) CountByDiscountRuleSince(ctx context.Context, ruleID, personID primitive.ObjectID, since time.Time) (int64, error) {
++	return 0, nil
++}
++func (r *fakeDeviceBindingAccessEventRepo) FindMostRecentByDiscountRule(ctx context.Context, ruleID, personID primitive.ObjectID) (*time.Time, error) {
++	return nil, nil
++}
++func (r *fakeDeviceBindingAccessEventRepo) CountCorporateQuotaUsageSince(ctx context.Context, institutionID primitive.ObjectID, since time.Time) (int64, error) {
++	return 0, nil
++}
++func (r *fakeDeviceBindingAccessEventRepo) SummarizeByDiscountRule(ctx context.Context, ruleID primitive.ObjectID) (int64, float64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) SummarizeByPersonIDs(ctx context.Context, personIDs []primitive.ObjectID) (int64, float64, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) SummarizeByKind(ctx context.Context, filter repository.SummaryFilter) ([]repository.KindSummaryRow, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) SummarizeByScheduledRoute(ctx context.Context, filter repository.SummaryFilter) ([]repository.ScheduledRouteSummaryRow, error) {
++	panic("not used in this test")
++}
++func (r *fakeDeviceBindingAccessEventRepo) SummarizeByPerson(ctx context.Context, filter repository.SummaryFilter) ([]repository.PersonSummaryRow, error) {
++	panic("not used in this test")
++}
++
++// newDeviceBindingTestHandler wires a real *service.Service (nil for every
++// dependency PricingModeFree/Kind=Custom never touches — wallets, ledger,
++// subscriptions, discounts, institutions, route/trip resolvers — same "absent
++// dependency = skip" convention the service package's own tests rely on) so
++// RecordEvent's happy path needs nothing beyond the two repositories here.
++func newDeviceBindingTestHandler() (*AdminHandler, *fakeDeviceBindingAccessPointRepo, *fakeDeviceBindingAccessEventRepo) {
++	apRepo := newFakeDeviceBindingAccessPointRepo()
++	evRepo := &fakeDeviceBindingAccessEventRepo{}
++	svc := service.New(apRepo, evRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
++	return NewAdminHandler(svc), apRepo, evRepo
++}
++
++func newDeviceBindingTestContext(method, path, body string, params gin.Params) (*gin.Context, *httptest.ResponseRecorder) {
++	gin.SetMode(gin.TestMode)
++	w := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(w)
++	c.Request = httptest.NewRequest(method, path, strings.NewReader(body))
++	c.Request.Header.Set("Content-Type", "application/json")
++	c.Params = params
++	return c, w
++}
++
++func TestHTTP_RecordEvent_UnboundDevice_Returns403AndWritesNothing(t *testing.T) {
++	h, apRepo, evRepo := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++	c, w := newDeviceBindingTestContext(http.MethodPost, "/device/access-points/"+apID.Hex()+"/events", "{}",
++		gin.Params{{Key: "id", Value: apID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "unbound-device")
++
++	h.RecordEvent(c)
++
++	if w.Code != http.StatusForbidden {
++		t.Fatalf("expected 403, got %d (body: %s)", w.Code, w.Body.String())
++	}
++	if len(evRepo.inserted) != 0 {
++		t.Fatalf("expected no event to be written, got %d", len(evRepo.inserted))
++	}
++}
++
++func TestHTTP_RecordEvent_BoundDevice_Returns201AndWritesOne(t *testing.T) {
++	h, apRepo, evRepo := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++	c, w := newDeviceBindingTestContext(http.MethodPost, "/device/access-points/"+apID.Hex()+"/events", "{}",
++		gin.Params{{Key: "id", Value: apID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "bound-device")
++
++	h.RecordEvent(c)
++
++	if w.Code != http.StatusCreated {
++		t.Fatalf("expected 201, got %d (body: %s)", w.Code, w.Body.String())
++	}
++	if len(evRepo.inserted) != 1 {
++		t.Fatalf("expected exactly 1 event to be written, got %d", len(evRepo.inserted))
++	}
++}
++
++func TestHTTP_RecordEvent_HumanAdmin_UnaffectedByDeviceBindings(t *testing.T) {
++	h, apRepo, evRepo := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"some-other-device"},
++	})
++	c, w := newDeviceBindingTestContext(http.MethodPost, "/access-points/"+apID.Hex()+"/events", "{}",
++		gin.Params{{Key: "id", Value: apID.Hex()}})
++	// No "user_type" set at all — the plain admin auth path, same as the
++	// real human-admin route registration (access_points/routes.go).
++	c.Set("userID", "admin-user-1")
++
++	h.RecordEvent(c)
++
++	if w.Code != http.StatusCreated {
++		t.Fatalf("expected 201 for a human admin regardless of DeviceBindings, got %d (body: %s)", w.Code, w.Body.String())
++	}
++	if len(evRepo.inserted) != 1 {
++		t.Fatalf("expected exactly 1 event to be written, got %d", len(evRepo.inserted))
++	}
++}
++
++func TestHTTP_RecordEvent_WrongAccessPointInURL_Returns403NotTheOtherOnesData(t *testing.T) {
++	// An attempt to use a device_id/context substitution trick: the request
++	// is well-formed and the device is real, just bound to a DIFFERENT
++	// access point than the one named in the URL.
++	h, apRepo, evRepo := newDeviceBindingTestHandler()
++	apRepo.seed(model.AccessPoint{
++		ID: primitive.NewObjectID(), Name: "AP kendi cihazı", Kind: model.AccessPointKindCustom,
++		PricingMode: model.PricingModeFree, Currency: "TRY", Status: model.AccessPointStatusActive,
++		DeviceBindings: []string{"dev-1"},
++	})
++	otherID := apRepo.seed(model.AccessPoint{
++		Name: "Başka kurumun noktası", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"dev-2"},
++	})
++	c, w := newDeviceBindingTestContext(http.MethodPost, "/device/access-points/"+otherID.Hex()+"/events", "{}",
++		gin.Params{{Key: "id", Value: otherID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "dev-1")
++
++	h.RecordEvent(c)
++
++	if w.Code != http.StatusForbidden {
++		t.Fatalf("expected 403, got %d (body: %s)", w.Code, w.Body.String())
++	}
++	if strings.Contains(w.Body.String(), "Başka kurumun noktası") {
++		t.Fatalf("response leaked the other access point's name: %s", w.Body.String())
++	}
++	if len(evRepo.inserted) != 0 {
++		t.Fatalf("expected no event to be written, got %d", len(evRepo.inserted))
++	}
++}
++
++func TestHTTP_CancelBoardingTrip_UnboundDevice_Returns403(t *testing.T) {
++	h, apRepo, _ := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++	tripID := primitive.NewObjectID()
++	c, w := newDeviceBindingTestContext(http.MethodPost,
++		"/device/access-points/"+apID.Hex()+"/rider-trips/"+tripID.Hex()+"/cancel", "",
++		gin.Params{{Key: "id", Value: apID.Hex()}, {Key: "tripId", Value: tripID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "unbound-device")
++
++	h.CancelBoardingTrip(c)
++
++	if w.Code != http.StatusForbidden {
++		t.Fatalf("expected 403, got %d (body: %s)", w.Code, w.Body.String())
++	}
++}
++
++func TestHTTP_SettleTripCash_UnboundDevice_Returns403(t *testing.T) {
++	h, apRepo, _ := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", CashFallbackEnabled: true, Status: model.AccessPointStatusActive,
++		DeviceBindings: []string{"bound-device"},
++	})
++	tripID := primitive.NewObjectID()
++	c, w := newDeviceBindingTestContext(http.MethodPost,
++		"/device/access-points/"+apID.Hex()+"/rider-trips/"+tripID.Hex()+"/cash-settlement", "{}",
++		gin.Params{{Key: "id", Value: apID.Hex()}, {Key: "tripId", Value: tripID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "unbound-device")
++
++	h.SettleTripCash(c)
++
++	if w.Code != http.StatusForbidden {
++		t.Fatalf("expected 403, got %d (body: %s)", w.Code, w.Body.String())
++	}
++}
++
++func TestHTTP_RecordWalkOnCashEntry_UnboundDevice_Returns403(t *testing.T) {
++	h, apRepo, _ := newDeviceBindingTestHandler()
++	apID := apRepo.seed(model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", CashFallbackEnabled: true, Status: model.AccessPointStatusActive,
++		DeviceBindings: []string{"bound-device"},
++	})
++	body := `{"origin_stop_id":"` + primitive.NewObjectID().Hex() + `","destination_stop_id":"` + primitive.NewObjectID().Hex() + `","headcount":1}`
++	c, w := newDeviceBindingTestContext(http.MethodPost,
++		"/device/access-points/"+apID.Hex()+"/walk-on-cash-entry", body,
++		gin.Params{{Key: "id", Value: apID.Hex()}})
++	c.Set("user_type", "api_client")
++	c.Set("userID", "unbound-device")
++
++	h.RecordWalkOnCashEntry(c)
++
++	if w.Code != http.StatusForbidden {
++		t.Fatalf("expected 403, got %d (body: %s)", w.Code, w.Body.String())
++	}
++}
+diff --git a/internal/modules/access_points/service/device_binding_test.go b/internal/modules/access_points/service/device_binding_test.go
+new file mode 100644
+index 0000000..e903da7
+--- /dev/null
++++ b/internal/modules/access_points/service/device_binding_test.go
+@@ -0,0 +1,264 @@
++package service
++
++import (
++	"context"
++	"testing"
++
++	"github.com/aystek/aystek-core/internal/modules/access_points/model"
++	"go.mongodb.org/mongo-driver/bson/primitive"
++)
++
++// These tests cover requireDeviceBoundToAccessPoint's guard on RecordEvent,
++// SettleTripCash, CancelBoardingTrip and RecordWalkOnCashEntry — the four
++// access_points operations the device gateway (cmd/api/main.go's
++// apiGatewayGroup) reaches by AccessPoint id. Each rejection test asserts not
++// only the returned error but, using the existing fakes' own call/item
++// tracking (fakeAccessEventRepo.items, fakeRiderTripResolver.cancelCalls),
++// that the operation's side effect did not happen — not just that an error
++// came back.
++
++func TestRecordEvent_UnboundDevice_RejectedBeforeAnyEventIsWritten(t *testing.T) {
++	svc, apRepo, evRepo, _, _ := newTestService()
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++
++	_, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{
++		ActorID: "unbound-device", CallerIsAPIClient: true,
++	})
++
++	if err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint, got %v", err)
++	}
++	if len(evRepo.items) != 0 {
++		t.Fatalf("expected no event to be written, got %d", len(evRepo.items))
++	}
++}
++
++func TestRecordEvent_BoundDevice_Allowed(t *testing.T) {
++	svc, apRepo, evRepo, _, _ := newTestService()
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++
++	ev, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{
++		ActorID: "bound-device", CallerIsAPIClient: true,
++	})
++
++	if err != nil {
++		t.Fatalf("expected the bound device to succeed, got %v", err)
++	}
++	if len(evRepo.items) != 1 || ev == nil {
++		t.Fatalf("expected exactly 1 event to be written, got %d", len(evRepo.items))
++	}
++}
++
++func TestRecordEvent_HumanAdmin_NotSubjectToDeviceBinding(t *testing.T) {
++	svc, apRepo, evRepo, _, _ := newTestService()
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"some-other-device"},
++	})
++
++	// CallerIsAPIClient defaults to false (the zero value) — same as every
++	// existing admin-panel call site, none of which sets it.
++	_, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{ActorID: "admin-user-1"})
++
++	if err != nil {
++		t.Fatalf("expected a human admin call to be unaffected by DeviceBindings, got %v", err)
++	}
++	if len(evRepo.items) != 1 {
++		t.Fatalf("expected exactly 1 event to be written, got %d", len(evRepo.items))
++	}
++}
++
++func TestRecordEvent_BoundDeviceButInactiveAccessPoint_Rejected(t *testing.T) {
++	svc, apRepo, evRepo, _, _ := newTestService()
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Kantin", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusInactive, DeviceBindings: []string{"bound-device"},
++	})
++
++	_, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{
++		ActorID: "bound-device", CallerIsAPIClient: true,
++	})
++
++	// The guard's own active check runs ahead of (and independently of)
++	// RecordEvent's separate requireActiveAccessPoint call, so a bound but
++	// inactive access point is still a device-binding rejection, not merely
++	// "falls through to the same later check" — this access point and
++	// device model have no other "is this device allowed right now" flag,
++	// so Status is what "aktiflik durumu" means here.
++	if err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint for an inactive access point, got %v", err)
++	}
++	if len(evRepo.items) != 0 {
++		t.Fatalf("expected no event to be written, got %d", len(evRepo.items))
++	}
++}
++
++// TestRecordEvent_IdempotencyReplay_CannotLeakAnotherAccessPointsEvent proves
++// the one path that bypasses the normal FindByID(accessPointID) + guard
++// order: RecordEvent's own idempotency-key short-circuit, which looks up the
++// existing event by key alone (tenant/site-scoped only, not
++// access-point-scoped — see FindByIdempotencyKey). Without the fix, a device
++// bound to AP_Y replaying (or guessing) AP_X's idempotency key would get back
++// AP_X's event — including its wallet/person/amount — without ever being
++// checked against AP_X's own DeviceBindings.
++func TestRecordEvent_IdempotencyReplay_CannotLeakAnotherAccessPointsEvent(t *testing.T) {
++	svc, apRepo, evRepo, _, _ := newTestService()
++	apX := apRepo.seed(t, model.AccessPoint{
++		Name: "AP-X", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"dev-x"},
++	})
++	apY := apRepo.seed(t, model.AccessPoint{
++		Name: "AP-Y", Kind: model.AccessPointKindCustom, PricingMode: model.PricingModeFree,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"dev-y"},
++	})
++
++	// dev-x's own, legitimate first call — recorded against AP_X.
++	first, err := svc.RecordEvent(context.Background(), apX, RecordEventInput{
++		ActorID: "dev-x", CallerIsAPIClient: true, IdempotencyKey: "shared-key",
++	})
++	if err != nil {
++		t.Fatalf("seed event failed: %v", err)
++	}
++	if len(evRepo.items) != 1 {
++		t.Fatalf("expected exactly 1 seed event, got %d", len(evRepo.items))
++	}
++
++	// dev-y, bound only to AP_Y, replays/guesses the same key against AP_Y's
++	// own URL — must be rejected, and must NOT get AP_X's event back.
++	leaked, err := svc.RecordEvent(context.Background(), apY, RecordEventInput{
++		ActorID: "dev-y", CallerIsAPIClient: true, IdempotencyKey: "shared-key",
++	})
++	if err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint, got err=%v event=%v", err, leaked)
++	}
++	if len(evRepo.items) != 1 {
++		t.Fatalf("expected no new event to be written, got %d", len(evRepo.items))
++	}
++
++	// dev-x itself retrying with the same key (e.g. a lost response) must
++	// still get its own event back — the fix must not break the legitimate
++	// offline-retry case.
++	replayed, err := svc.RecordEvent(context.Background(), apX, RecordEventInput{
++		ActorID: "dev-x", CallerIsAPIClient: true, IdempotencyKey: "shared-key",
++	})
++	if err != nil || replayed == nil || replayed.ID != first.ID {
++		t.Fatalf("expected dev-x's own retry to return its original event, got err=%v event=%v", err, replayed)
++	}
++	if len(evRepo.items) != 1 {
++		t.Fatalf("expected the retry to insert nothing new, got %d", len(evRepo.items))
++	}
++}
++
++func TestSettleTripCash_UnboundDevice_RejectedAheadOfCashFallbackCheck(t *testing.T) {
++	routeID := primitive.NewObjectID()
++	riderTrips := newFakeRiderTripResolver()
++	svc, apRepo, _, _, _ := newTestServiceWithRiderTripsAndFare(nil, riderTrips, nil)
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", ScheduledRouteIDs: []primitive.ObjectID{routeID}, CashFallbackEnabled: false,
++		Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++
++	_, err := svc.SettleTripCash(context.Background(), apID, primitive.NewObjectID(), CashSettlementInput{
++		ActorID: "unbound-device", CallerIsAPIClient: true,
++	})
++
++	// CashFallbackEnabled is false, so an allowed caller would hit
++	// ErrCashFallbackNotEnabled (see TestSettleTripCashRequiresCashFallbackEnabled)
++	// — getting ErrDeviceNotBoundToAccessPoint instead proves the guard runs
++	// strictly before that check, not after it.
++	if err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint, got %v", err)
++	}
++	if len(riderTrips.settledCalls) != 0 {
++		t.Fatalf("expected no settlement to be recorded, got %d calls", len(riderTrips.settledCalls))
++	}
++}
++
++func TestSettleTripCash_HumanAdmin_ReachesTheNextCheckUnaffected(t *testing.T) {
++	routeID := primitive.NewObjectID()
++	riderTrips := newFakeRiderTripResolver()
++	svc, apRepo, _, _, _ := newTestServiceWithRiderTripsAndFare(nil, riderTrips, nil)
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", ScheduledRouteIDs: []primitive.ObjectID{routeID}, CashFallbackEnabled: false,
++		Status: model.AccessPointStatusActive, DeviceBindings: []string{"some-other-device"},
++	})
++
++	_, err := svc.SettleTripCash(context.Background(), apID, primitive.NewObjectID(), CashSettlementInput{ActorID: "admin-user-1"})
++
++	if err != ErrCashFallbackNotEnabled {
++		t.Fatalf("expected ErrCashFallbackNotEnabled (same as before this change), got %v", err)
++	}
++}
++
++func TestRecordWalkOnCashEntry_UnboundDevice_RejectedAheadOfCashFallbackCheck(t *testing.T) {
++	routeDefID := primitive.NewObjectID()
++	svc, apRepo, _, _, _, scheduledRouteID := newTestServiceWithStopFares(nil, routeDefID, nil, nil)
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", ScheduledRouteIDs: []primitive.ObjectID{scheduledRouteID}, CashFallbackEnabled: false,
++		Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++
++	_, err := svc.RecordWalkOnCashEntry(context.Background(), apID, WalkOnCashEntryInput{
++		OriginStopID: primitive.NewObjectID(), DestinationStopID: primitive.NewObjectID(), Headcount: 1,
++		ActorID: "unbound-device", CallerIsAPIClient: true,
++	})
++
++	if err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint, got %v", err)
++	}
++}
++
++func TestRecordWalkOnCashEntry_HumanAdmin_ReachesTheNextCheckUnaffected(t *testing.T) {
++	routeDefID := primitive.NewObjectID()
++	svc, apRepo, _, _, _, scheduledRouteID := newTestServiceWithStopFares(nil, routeDefID, nil, nil)
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", ScheduledRouteIDs: []primitive.ObjectID{scheduledRouteID}, CashFallbackEnabled: false,
++		Status: model.AccessPointStatusActive, DeviceBindings: []string{"some-other-device"},
++	})
++
++	_, err := svc.RecordWalkOnCashEntry(context.Background(), apID, WalkOnCashEntryInput{
++		OriginStopID: primitive.NewObjectID(), DestinationStopID: primitive.NewObjectID(), Headcount: 1,
++		ActorID: "admin-user-1",
++	})
++
++	if err != ErrCashFallbackNotEnabled {
++		t.Fatalf("expected ErrCashFallbackNotEnabled (same as before this change), got %v", err)
++	}
++}
++
++func TestCancelBoardingTrip_UnboundDevice_RejectedBeforeTheTripIsTouched(t *testing.T) {
++	riderTrips := newFakeRiderTripResolver()
++	svc, apRepo, _, walletsSvc, personID := newTestServiceWithRiderTripsAndFare(nil, riderTrips, nil)
++	wallet, err := walletsSvc.CreateWallet(context.Background(), personID, "TRY", "tester")
++	if err != nil {
++		t.Fatalf("create wallet: %v", err)
++	}
++	apID := apRepo.seed(t, model.AccessPoint{
++		Name: "Servis", Kind: model.AccessPointKindFareTransport, PricingMode: model.PricingModeMetered,
++		Currency: "TRY", Status: model.AccessPointStatusActive, DeviceBindings: []string{"bound-device"},
++	})
++	ev, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{
++		PersonID: &personID, WalletID: &wallet.ID, GeoLocation: &model.GeoLocation{Lat: 41.0, Lng: 29.0},
++		InstrumentUsed: model.InstrumentCard, ActorID: "bound-device", CallerIsAPIClient: true,
++	})
++	if err != nil {
++		t.Fatalf("RecordEvent failed: %v", err)
++	}
++
++	if err := svc.CancelBoardingTrip(context.Background(), apID, *ev.RiderTripID, "unbound-device", true); err != ErrDeviceNotBoundToAccessPoint {
++		t.Fatalf("expected ErrDeviceNotBoundToAccessPoint, got %v", err)
++	}
++	if len(riderTrips.cancelCalls) != 0 {
++		t.Fatalf("expected no cancel call to reach the trip, got %d", len(riderTrips.cancelCalls))
++	}
++}
+diff --git a/internal/modules/access_points/service/service.go b/internal/modules/access_points/service/service.go
+index a22f87c..a79bb2b 100644
+--- a/internal/modules/access_points/service/service.go
++++ b/internal/modules/access_points/service/service.go
+@@ -3,6 +3,7 @@ package service
+ import (
+ 	"context"
+ 	"errors"
++	"log"
+ 	"math"
+ 	"strings"
+ 	"time"
+@@ -129,14 +130,21 @@ type Input struct {
+ // RecordEventInput is the payload for RecordEvent — a single grant/deny
+ // evaluation at an AccessPoint (master plan §2.5).
+ type RecordEventInput struct {
+-	WalletID             *primitive.ObjectID
+-	PersonID             *primitive.ObjectID
+-	RiderCategory        model.RiderCategory
+-	InstrumentUsed       model.InstrumentUsed
+-	IdempotencyKey       string
+-	Memo                 string
+-	GeoLocation          *model.GeoLocation
+-	ActorID              string
++	WalletID       *primitive.ObjectID
++	PersonID       *primitive.ObjectID
++	RiderCategory  model.RiderCategory
++	InstrumentUsed model.InstrumentUsed
++	IdempotencyKey string
++	Memo           string
++	GeoLocation    *model.GeoLocation
++	ActorID        string
++	// CallerIsAPIClient is set by the handler from gin.Context's server-set
++	// "user_type", never from the request itself — see
++	// requireDeviceBoundToAccessPoint's doc comment. False (its zero value)
++	// for every existing caller that does not set it, including every
++	// existing test — that is "not a device", which the guard always allows,
++	// so this field is additive and does not change any existing behavior.
++	CallerIsAPIClient    bool
+ 	SaleItems            []SaleItemInput
+ 	resolvedSaleItems    []model.SaleItem
+ 	revenueInstitutionID *primitive.ObjectID
+@@ -382,6 +390,58 @@ func requireActiveAccessPoint(ap *model.AccessPoint) error {
+ 	return nil
+ }
+ 
++// ErrDeviceNotBoundToAccessPoint is requireDeviceBoundToAccessPoint's one
++// rejection — deliberately a single static sentinel with no access-point
++// details in its message, so returning err.Error() to the caller (same
++// pattern RecordEvent already uses for its other 403s) never discloses
++// another institution's or access point's data.
++var ErrDeviceNotBoundToAccessPoint = errors.New("access point not bound to this device")
++
++// requireDeviceBoundToAccessPoint guards RecordEvent/SettleTripCash/
++// CancelBoardingTrip/RecordWalkOnCashEntry — the four access_points
++// operations the device gateway (cmd/api/main.go's apiGatewayGroup, master
++// plan §9 madde 1) reaches by AccessPoint id — against a device operating on
++// an AccessPoint it is not configured for. Must run, and must return nil,
++// before any of those four does anything with a financial, ledger or
++// trip-state side effect.
++//
++// callerIsAPIClient and apiClientID come from the handler's own gin.Context
++// ("user_type"/"userID", set only by APIClientAuthRequired from the verified
++// token — never from the request body or query). A human admin
++// (callerIsAPIClient=false) is unaffected: DeviceBindings has no meaning for
++// them, and their own permission/role gating already applies unchanged.
++//
++// Tenant/site scoping is handled earlier, by the FindByID query that
++// produced ap (tenantfilter) — an AccessPoint outside the caller's own
++// tenant/site cannot be found at all, so ap here is already confirmed to be
++// in-scope. This is the finer check on top: being in the same tenant/site is
++// not, by itself, enough.
++//
++// Fails closed: an inactive AccessPoint and an empty apiClientID are both
++// "not bound", same as an id that is simply absent from DeviceBindings.
++// DeviceBindings has no per-entry status of its own in the current model —
++// removing a client id from the array is the only way to revoke it; this
++// does not invent one.
++func (s *Service) requireDeviceBoundToAccessPoint(ap *model.AccessPoint, callerIsAPIClient bool, apiClientID string) error {
++	if !callerIsAPIClient {
++		return nil
++	}
++	if err := requireActiveAccessPoint(ap); err != nil {
++		log.Printf("access_points: rejected device %q for access point %s: inactive", apiClientID, ap.ID.Hex())
++		return ErrDeviceNotBoundToAccessPoint
++	}
++	clientID := strings.TrimSpace(apiClientID)
++	if clientID != "" {
++		for _, bound := range ap.DeviceBindings {
++			if bound == clientID {
++				return nil
++			}
++		}
++	}
++	log.Printf("access_points: rejected device %q for access point %s: not bound", apiClientID, ap.ID.Hex())
++	return ErrDeviceNotBoundToAccessPoint
++}
++
+ func (s *Service) checkRefundWindow(ctx context.Context, event *model.AccessEvent) error {
+ 	if s.institutionsRepo == nil {
+ 		return nil
+@@ -944,6 +1004,22 @@ func (s *Service) RecordEvent(ctx context.Context, accessPointID primitive.Objec
+ 	key := strings.TrimSpace(in.IdempotencyKey)
+ 	if key != "" {
+ 		if existing, err := s.eventRepo.FindByIdempotencyKey(ctx, key); err == nil && existing != nil {
++			// The matched event may belong to a DIFFERENT AccessPoint than
++			// accessPointID — FindByIdempotencyKey is only tenant/site-scoped,
++			// not access-point-scoped (idempotency keys are meant to be
++			// globally unique per tenant/site, so a collision here is either
++			// the same device's own retry or a guessed/replayed key). Either
++			// way, this is "an alternative path reaching the same operation"
++			// for the device-binding guard — it must check the EXISTING
++			// event's own access point, not accessPointID, before handing
++			// back that event's wallet/person/amount data.
++			existingAP, apErr := s.repo.FindByID(ctx, existing.AccessPointID)
++			if apErr != nil {
++				return nil, apErr
++			}
++			if err := s.requireDeviceBoundToAccessPoint(existingAP, in.CallerIsAPIClient, in.ActorID); err != nil {
++				return nil, err
++			}
+ 			return existing, nil
+ 		}
+ 	}
+@@ -952,6 +1028,9 @@ func (s *Service) RecordEvent(ctx context.Context, accessPointID primitive.Objec
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if err := s.requireDeviceBoundToAccessPoint(ap, in.CallerIsAPIClient, in.ActorID); err != nil {
++		return nil, err
++	}
+ 	if err := requireActiveAccessPoint(ap); err != nil {
+ 		return nil, err
+ 	}
+@@ -1578,6 +1657,8 @@ type CashSettlementInput struct {
+ 	Memo           string
+ 	IdempotencyKey string
+ 	ActorID        string
++	// CallerIsAPIClient — see RecordEventInput's field of the same name.
++	CallerIsAPIClient bool
+ }
+ 
+ // SettleTripCash (Increment 71c) lets a driver collect, in cash, the fare a
+@@ -1592,6 +1673,9 @@ func (s *Service) SettleTripCash(ctx context.Context, accessPointID, tripID prim
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if err := s.requireDeviceBoundToAccessPoint(ap, in.CallerIsAPIClient, in.ActorID); err != nil {
++		return nil, err
++	}
+ 	if err := requireActiveAccessPoint(ap); err != nil {
+ 		return nil, err
+ 	}
+@@ -1683,11 +1767,14 @@ func (s *Service) SettleTripCash(ctx context.Context, accessPointID, tripID prim
+ // duplicated here. Cancelling never touches money: an open trip was never
+ // charged, this is purely a status change so the rider's next tap starts a
+ // genuinely fresh entry.
+-func (s *Service) CancelBoardingTrip(ctx context.Context, accessPointID, tripID primitive.ObjectID, actorID string) error {
++func (s *Service) CancelBoardingTrip(ctx context.Context, accessPointID, tripID primitive.ObjectID, actorID string, callerIsAPIClient bool) error {
+ 	ap, err := s.repo.FindByID(ctx, accessPointID)
+ 	if err != nil {
+ 		return err
+ 	}
++	if err := s.requireDeviceBoundToAccessPoint(ap, callerIsAPIClient, actorID); err != nil {
++		return err
++	}
+ 	if s.riderTrips == nil {
+ 		return ErrPricingModeNotSupported
+ 	}
+@@ -1711,6 +1798,8 @@ type WalkOnCashEntryInput struct {
+ 	Memo              string
+ 	IdempotencyKey    string
+ 	ActorID           string
++	// CallerIsAPIClient — see RecordEventInput's field of the same name.
++	CallerIsAPIClient bool
+ }
+ 
+ // RecordWalkOnCashEntry (Increment 71c) charges Headcount riders a single
+@@ -1725,6 +1814,9 @@ func (s *Service) RecordWalkOnCashEntry(ctx context.Context, accessPointID primi
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if err := s.requireDeviceBoundToAccessPoint(ap, in.CallerIsAPIClient, in.ActorID); err != nil {
++		return nil, err
++	}
+ 	if err := requireActiveAccessPoint(ap); err != nil {
+ 		return nil, err
+ 	}
+diff --git a/internal/modules/access_points/service/service_test.go b/internal/modules/access_points/service/service_test.go
+index 576e74a..058af44 100644
+--- a/internal/modules/access_points/service/service_test.go
++++ b/internal/modules/access_points/service/service_test.go
+@@ -1330,7 +1330,7 @@ func TestCancelBoardingTripCancelsOpenTripAtSameAccessPoint(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("RecordEvent failed: %v", err)
+ 	}
+-	if err := svc.CancelBoardingTrip(context.Background(), apID, *ev.RiderTripID, "driver-1"); err != nil {
++	if err := svc.CancelBoardingTrip(context.Background(), apID, *ev.RiderTripID, "driver-1", false); err != nil {
+ 		t.Fatalf("expected cancellation to succeed, got %v", err)
+ 	}
+ 	if _, err := svc.RecordEvent(context.Background(), apID, RecordEventInput{
+@@ -1359,7 +1359,7 @@ func TestCancelBoardingTripRejectsTripFromDifferentAccessPoint(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("RecordEvent failed: %v", err)
+ 	}
+-	if err := svc.CancelBoardingTrip(context.Background(), otherApID, *ev.RiderTripID, "driver-2"); err != ErrTripNotFromThisAccessPoint {
++	if err := svc.CancelBoardingTrip(context.Background(), otherApID, *ev.RiderTripID, "driver-2", false); err != ErrTripNotFromThisAccessPoint {
+ 		t.Fatalf("expected ErrTripNotFromThisAccessPoint, got %v", err)
+ 	}
+ }

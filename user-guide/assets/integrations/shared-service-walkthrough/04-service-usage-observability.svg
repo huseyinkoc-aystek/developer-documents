@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0f172a"/>
+  <rect x="40" y="40" width="1520" height="820" rx="18" fill="#111827" stroke="#334155" stroke-width="2"/>
+  <text x="80" y="130" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="42" font-weight="700">AYSTEK Integrations Walkthrough Placeholder</text>
+  <text x="80" y="190" fill="#94a3b8" font-family="Arial, sans-serif" font-size="28">Replace this SVG with real screenshot using same file base name (.png).</text>
+  <rect x="80" y="250" width="1440" height="520" rx="14" fill="#0b1220" stroke="#1e293b" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="110" y="320" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="30">SCREENSHOT SLOT</text>
+  <text x="110" y="370" fill="#64748b" font-family="Arial, sans-serif" font-size="24">Expected resolution: 1920x1080+</text>
+  <text x="110" y="410" fill="#64748b" font-family="Arial, sans-serif" font-size="24">Environment: Admin Integrations Module</text>
+  <text x="80" y="825" fill="#f8fafc" font-family="Arial, sans-serif" font-size="30">FILE: 04-service-usage-observability</text>
+</svg>

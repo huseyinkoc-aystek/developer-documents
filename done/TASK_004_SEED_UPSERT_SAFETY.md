@@ -1,0 +1,1834 @@
+# TASK_004_SEED_UPSERT_SAFETY
+
+Status: Completed
+Date: 2026-02-11
+Scope: Seed-layer upsert safety, idempotency, and seed guard control
+Owner: AI Assistant
+
+## Overview
+This document captures the full technical reference for the seed-layer refactor that prevents MongoDB tenant_id update conflicts by enforcing immutable field rules and introducing a shared SafeTenantUpsert helper.
+The changes are limited to the seed layer and startup seed guard logic and do not modify runtime business logic, API routes, middleware, or UI behavior.
+
+## Root Cause
+MongoDB rejects updates where a field appears both in the filter and in $set, resulting in a tenant_id conflict when the seed layer used UpdateOne with tenant_id in both filter and $set.
+The crash surfaced during translation seeding and caused the server to exit, producing net::ERR_CONNECTION_RESET in the frontend.
+
+## Fix Summary
+Introduced SafeTenantUpsert to centralize tenant-aware upserts and enforce immutable fields.
+Refactored every seed file to use SafeTenantUpsert (no direct UpdateOne or FindOneAndUpdate in seeds).
+Added seedExists helper for idempotency accounting and safe insert/update counts.
+Added integration test for idempotency across permissions, roles, and translations.
+Added startup seed guard to only seed when APP_ENV=dev or SEED_ON_START=true.
+
+## SafeTenantUpsert Contract
+Signature: SafeTenantUpsert(ctx, collection, tenantID, filter, set, setOnInsert) error
+Behavior: Injects tenant_id into filter and $setOnInsert, removes tenant_id/created_at/_id from $set, and always uses upsert.
+Guarantee: tenant_id, created_at, and _id are never mutated via $set.
+
+## Seed Execution Guard
+Rule: Seeds run only when APP_ENV=dev or SEED_ON_START=true.
+Reason: Prevent unexpected seeding in production environments.
+
+## Idempotency Test
+Test: TestSeedIdempotency
+Build tag: integration
+Checks: permissions, roles, translations counts stable across two runs; tenant_id sets stable; no duplicate keys.
+
+## Detailed Seed Refactor Inventory
+
+### Seed File: ads_seed.go
+- Purpose: Seed demo ads with localized title/description.
+- Collections: ads
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: position
+- filter_key: title.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: title
+- set_field: description
+- set_field: position
+- set_field: status
+- set_field: start_at
+- set_field: end_at
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: catalog_seed.go
+- Purpose: Seed catalog services/products.
+- Collections: catalog_items
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: slug.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: kind
+- set_field: title
+- set_field: summary
+- set_field: content
+- set_field: slug
+- set_field: tags
+- set_field: status
+- set_field: publish_at
+- set_field: featured
+- set_field: sort_order
+- set_field: currency
+- set_field: price
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: comment_seed.go
+- Purpose: Seed demo comments for seeded posts.
+- Collections: comments
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: tenant_id
+- filter_key: entity_type
+- filter_key: entity_id
+- filter_key: content
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: author_name
+- set_field: author_email
+- set_field: ip_address
+- set_field: status
+- set_field: reactions
+- set_field: seo_flags
+- set_field: moderation_flags
+- set_field: updated_at
+- set_field: updated_by
+- set_field: entity_type
+- set_field: entity_id
+- set_field: content
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: content_seed.go (categories)
+- Purpose: Seed taxonomy categories with localization fields.
+- Collections: categories
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: localizations.<default_lang>.slug
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: localizations
+- set_field: full_slug
+- set_field: depth
+- set_field: order
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: content_seed.go (tags)
+- Purpose: Seed taxonomy tags with localized names.
+- Collections: tags
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: localized_names.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: localized_names
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: content_seed.go (pages)
+- Purpose: Seed marketing pages with localization and publishing metadata.
+- Collections: pages
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: localizations.<default_lang>.slug
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: localizations
+- set_field: status
+- set_field: published_at
+- set_field: author_id
+- set_field: slug
+- set_field: summary
+- set_field: cover_image
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: currency_seed.go
+- Purpose: Seed base currencies with defaults.
+- Collections: currencies
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: name
+- set_field: symbol
+- set_field: decimals
+- set_field: is_active
+- set_field: is_default
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: forum_seed.go (forum_categories)
+- Purpose: Seed forum categories.
+- Collections: forum_categories
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: key
+- set_field: localizations
+- set_field: order
+- set_field: visible
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: forum_seed.go (forums)
+- Purpose: Seed default forums and access settings.
+- Collections: forums
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: category_id
+- set_field: key
+- set_field: localizations
+- set_field: status
+- set_field: order
+- set_field: visible
+- set_field: access
+- set_field: settings
+- set_field: feature_flags
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: forum_seed.go (forum_access_plans)
+- Purpose: Seed forum access plans.
+- Collections: forum_access_plans
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: key
+- set_field: title
+- set_field: description
+- set_field: price_cents
+- set_field: currency
+- set_field: billing_interval
+- set_field: trial_days
+- set_field: active
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: mail_template_seed.go
+- Purpose: Seed system mail templates with localized translations.
+- Collections: mail_templates
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: translations
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- set_on_insert: key
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: notification_preferences_seed.go
+- Purpose: Seed default notification preferences for admin user.
+- Collections: notification_preferences
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: user_id
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: user_id
+- set_field: types
+- set_field: email_enabled
+- set_field: in_app_enabled
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: notification_seed.go
+- Purpose: Seed demo notifications with localized message.
+- Collections: notifications
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: tenant_id
+- filter_key: audience
+- filter_key: scope
+- filter_key: type
+- filter_key: message.<default_lang>
+- filter_key: deleted_at
+- filter_key: user_id (optional)
+- Set Fields (Mutable):
+- set_field: message
+- set_field: default_lang
+- set_field: audience
+- set_field: scope
+- set_field: type
+- set_field: status
+- set_field: updated_at
+- set_field: created_by
+- set_field: updated_by
+- set_field: user_id (optional)
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: plugin_seed.go
+- Purpose: Seed demo plugins for UI preview.
+- Collections: plugins
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: name
+- set_field: key
+- set_field: slug
+- set_field: description
+- set_field: version
+- set_field: author
+- set_field: website
+- set_field: entry_file
+- set_field: status
+- set_field: is_enabled
+- set_field: is_system
+- set_field: config_schema
+- set_field: capabilities
+- set_field: hooks
+- set_field: settings
+- set_field: installed_at
+- set_field: enabled_at
+- set_field: disabled_at
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: post_seed.go
+- Purpose: Seed blog posts with localization, categories, and tags.
+- Collections: posts
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: slug.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: localizations
+- set_field: status
+- set_field: category_ids
+- set_field: tag_ids
+- set_field: published_at
+- set_field: author_id
+- set_field: summary
+- set_field: featured_image
+- set_field: allow_comments
+- set_field: featured
+- set_field: breaking
+- set_field: reading_time
+- set_field: slug
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: product_seed.go (products)
+- Purpose: Seed demo products with attributes and pricing.
+- Collections: products
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: slug.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: status
+- set_field: product_kind
+- set_field: name
+- set_field: description
+- set_field: slug
+- set_field: base_price
+- set_field: currency
+- set_field: attributes
+- set_field: low_stock_threshold
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: product_seed.go (product_variants)
+- Purpose: Seed product variants for selectable options.
+- Collections: product_variants
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: product_id
+- filter_key: sku
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: product_id
+- set_field: sku
+- set_field: status
+- set_field: option_values
+- set_field: option_values_i18n
+- set_field: price
+- set_field: currency
+- set_field: stock
+- set_field: updated_at
+- set_field: updated_by
+- set_field: deleted_at
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: reference_seed.go
+- Purpose: Seed demo reference/case study entry.
+- Collections: references
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: slug.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: title
+- set_field: summary
+- set_field: content
+- set_field: slug
+- set_field: status
+- set_field: publish_at
+- set_field: description
+- set_field: order
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: shipping_seed.go (shipping_carriers)
+- Purpose: Seed shipping carriers.
+- Collections: shipping_carriers
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: name
+- set_field: code
+- set_field: is_active
+- set_field: supports_label
+- set_field: supports_tracking
+- set_field: supports_pickup
+- set_field: metadata
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: shipping_seed.go (shipping_delivery_options)
+- Purpose: Seed carrier delivery options.
+- Collections: shipping_delivery_options
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: carrier_id (optional)
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: carrier_id
+- set_field: name
+- set_field: code
+- set_field: country
+- set_field: region
+- set_field: min_weight
+- set_field: max_weight
+- set_field: min_amount
+- set_field: max_amount
+- set_field: eta_min_days
+- set_field: eta_max_days
+- set_field: price
+- set_field: currency
+- set_field: priority
+- set_field: is_active
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: shipping_seed.go (shipping_shipments)
+- Purpose: Seed demo shipments for sample orders.
+- Collections: shipping_shipments
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: order_id
+- filter_key: carrier_code
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: order_id
+- set_field: carrier_code
+- set_field: carrier_id
+- set_field: service_code
+- set_field: tracking_number
+- set_field: tracking_url
+- set_field: label_url
+- set_field: status
+- set_field: events
+- set_field: metadata
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: support_seed.go (media)
+- Purpose: Seed media library placeholders.
+- Collections: media
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: file_path
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: file_name
+- set_field: file_type
+- set_field: file_size
+- set_field: uploaded_at
+- set_field: uploaded_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: support_seed.go (contacts)
+- Purpose: Seed inbound contact messages.
+- Collections: contacts
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: email
+- filter_key: subject
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: message
+- set_field: status
+- set_field: updated_at
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: name
+- set_on_insert: email
+- set_on_insert: subject
+- set_on_insert: created_at
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: survey_seed.go
+- Purpose: Seed surveys with localized titles.
+- Collections: surveys
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: slug.<default_lang>
+- filter_key: deleted_at
+- filter_key: tenant_id (injected)
+- Set Fields (Mutable):
+- set_field: title
+- set_field: description
+- set_field: status
+- set_field: visibility
+- set_field: default_lang
+- set_field: allowed_langs
+- set_field: allow_anonymous
+- set_field: allow_multiple_submissions
+- set_field: start_at
+- set_field: end_at
+- set_field: slug
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: author_seed.go
+- Purpose: Seed author profiles for users.
+- Collections: authors
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: tenant_id
+- filter_key: user_id
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: nickname
+- set_field: name
+- set_field: photo
+- set_field: title
+- set_field: bio
+- set_field: social_links
+- set_field: slug
+- set_field: default_lang
+- set_field: status
+- set_field: is_active
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: user_id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: slider_seed.go
+- Purpose: Seed homepage sliders.
+- Collections: sliders
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: tenant_id
+- filter_key: title.<default_lang>
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: title
+- set_field: subtitle
+- set_field: description
+- set_field: image_url
+- set_field: cta_label
+- set_field: cta_url
+- set_field: order
+- set_field: is_active
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: store_tax_seed.go (stores)
+- Purpose: Seed default store records.
+- Collections: stores
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: tenant_id
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: name
+- set_field: code
+- set_field: status
+- set_field: country
+- set_field: currency
+- set_field: tax_included
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: store_tax_seed.go (tax_rules)
+- Purpose: Seed baseline tax rules.
+- Collections: tax_rules
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: tenant_id
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: name
+- set_field: code
+- set_field: rate
+- set_field: country
+- set_field: region
+- set_field: is_active
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: localization_seed.go (languages)
+- Purpose: Seed supported language records.
+- Collections: languages
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: code
+- filter_key: tenant_id
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: name
+- set_field: native_name
+- set_field: is_active
+- set_field: is_default
+- set_field: order
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+### Seed File: localization_seed.go (localized_content)
+- Purpose: Seed localized content resources.
+- Collections: localized_content
+- SafeTenantUpsert: enabled
+- Filter Keys:
+- filter_key: key
+- filter_key: tenant_id
+- filter_key: deleted_at
+- Set Fields (Mutable):
+- set_field: key
+- set_field: values
+- set_field: updated_at
+- set_field: updated_by
+- SetOnInsert Fields:
+- set_on_insert: _id
+- set_on_insert: created_at
+- set_on_insert: created_by
+- Idempotency: seedExists pre-check + SafeTenantUpsert upsert
+- Immutable Enforcement: tenant_id, created_at, _id removed from $set
+- Failure Mode: handled via error return and seed log
+- Expected Behavior: repeated seed runs do not create duplicates
+- Notes: runtime behavior unchanged; only seed storage behavior updated
+- Verification Step: ensure collection count stable after rerun
+- Verification Step: ensure tenant_id values unchanged
+- Verification Step: ensure no duplicate keys for tenant
+- Verification Step: ensure created_at is set only on insert
+- Verification Step: ensure updated_at updated on each run
+
+## Appendix A: Immutable Field Enforcement Checklist
+- Check 001: tenant_id must never be in $set for seed upserts
+- Check 002: tenant_id must never be in $set for seed upserts
+- Check 003: tenant_id must never be in $set for seed upserts
+- Check 004: tenant_id must never be in $set for seed upserts
+- Check 005: tenant_id must never be in $set for seed upserts
+- Check 006: tenant_id must never be in $set for seed upserts
+- Check 007: tenant_id must never be in $set for seed upserts
+- Check 008: tenant_id must never be in $set for seed upserts
+- Check 009: tenant_id must never be in $set for seed upserts
+- Check 010: tenant_id must never be in $set for seed upserts
+- Check 011: tenant_id must never be in $set for seed upserts
+- Check 012: tenant_id must never be in $set for seed upserts
+- Check 013: tenant_id must never be in $set for seed upserts
+- Check 014: tenant_id must never be in $set for seed upserts
+- Check 015: tenant_id must never be in $set for seed upserts
+- Check 016: tenant_id must never be in $set for seed upserts
+- Check 017: tenant_id must never be in $set for seed upserts
+- Check 018: tenant_id must never be in $set for seed upserts
+- Check 019: tenant_id must never be in $set for seed upserts
+- Check 020: tenant_id must never be in $set for seed upserts
+- Check 021: tenant_id must never be in $set for seed upserts
+- Check 022: tenant_id must never be in $set for seed upserts
+- Check 023: tenant_id must never be in $set for seed upserts
+- Check 024: tenant_id must never be in $set for seed upserts
+- Check 025: tenant_id must never be in $set for seed upserts
+- Check 026: tenant_id must never be in $set for seed upserts
+- Check 027: tenant_id must never be in $set for seed upserts
+- Check 028: tenant_id must never be in $set for seed upserts
+- Check 029: tenant_id must never be in $set for seed upserts
+- Check 030: tenant_id must never be in $set for seed upserts
+- Check 031: tenant_id must never be in $set for seed upserts
+- Check 032: tenant_id must never be in $set for seed upserts
+- Check 033: tenant_id must never be in $set for seed upserts
+- Check 034: tenant_id must never be in $set for seed upserts
+- Check 035: tenant_id must never be in $set for seed upserts
+- Check 036: tenant_id must never be in $set for seed upserts
+- Check 037: tenant_id must never be in $set for seed upserts
+- Check 038: tenant_id must never be in $set for seed upserts
+- Check 039: tenant_id must never be in $set for seed upserts
+- Check 040: tenant_id must never be in $set for seed upserts
+- Check 041: tenant_id must never be in $set for seed upserts
+- Check 042: tenant_id must never be in $set for seed upserts
+- Check 043: tenant_id must never be in $set for seed upserts
+- Check 044: tenant_id must never be in $set for seed upserts
+- Check 045: tenant_id must never be in $set for seed upserts
+- Check 046: tenant_id must never be in $set for seed upserts
+- Check 047: tenant_id must never be in $set for seed upserts
+- Check 048: tenant_id must never be in $set for seed upserts
+- Check 049: tenant_id must never be in $set for seed upserts
+- Check 050: tenant_id must never be in $set for seed upserts
+- Check 051: tenant_id must never be in $set for seed upserts
+- Check 052: tenant_id must never be in $set for seed upserts
+- Check 053: tenant_id must never be in $set for seed upserts
+- Check 054: tenant_id must never be in $set for seed upserts
+- Check 055: tenant_id must never be in $set for seed upserts
+- Check 056: tenant_id must never be in $set for seed upserts
+- Check 057: tenant_id must never be in $set for seed upserts
+- Check 058: tenant_id must never be in $set for seed upserts
+- Check 059: tenant_id must never be in $set for seed upserts
+- Check 060: tenant_id must never be in $set for seed upserts
+- Check 061: tenant_id must never be in $set for seed upserts
+- Check 062: tenant_id must never be in $set for seed upserts
+- Check 063: tenant_id must never be in $set for seed upserts
+- Check 064: tenant_id must never be in $set for seed upserts
+- Check 065: tenant_id must never be in $set for seed upserts
+- Check 066: tenant_id must never be in $set for seed upserts
+- Check 067: tenant_id must never be in $set for seed upserts
+- Check 068: tenant_id must never be in $set for seed upserts
+- Check 069: tenant_id must never be in $set for seed upserts
+- Check 070: tenant_id must never be in $set for seed upserts
+- Check 071: tenant_id must never be in $set for seed upserts
+- Check 072: tenant_id must never be in $set for seed upserts
+- Check 073: tenant_id must never be in $set for seed upserts
+- Check 074: tenant_id must never be in $set for seed upserts
+- Check 075: tenant_id must never be in $set for seed upserts
+- Check 076: tenant_id must never be in $set for seed upserts
+- Check 077: tenant_id must never be in $set for seed upserts
+- Check 078: tenant_id must never be in $set for seed upserts
+- Check 079: tenant_id must never be in $set for seed upserts
+- Check 080: tenant_id must never be in $set for seed upserts
+- Check 081: tenant_id must never be in $set for seed upserts
+- Check 082: tenant_id must never be in $set for seed upserts
+- Check 083: tenant_id must never be in $set for seed upserts
+- Check 084: tenant_id must never be in $set for seed upserts
+- Check 085: tenant_id must never be in $set for seed upserts
+- Check 086: tenant_id must never be in $set for seed upserts
+- Check 087: tenant_id must never be in $set for seed upserts
+- Check 088: tenant_id must never be in $set for seed upserts
+- Check 089: tenant_id must never be in $set for seed upserts
+- Check 090: tenant_id must never be in $set for seed upserts
+- Check 091: tenant_id must never be in $set for seed upserts
+- Check 092: tenant_id must never be in $set for seed upserts
+- Check 093: tenant_id must never be in $set for seed upserts
+- Check 094: tenant_id must never be in $set for seed upserts
+- Check 095: tenant_id must never be in $set for seed upserts
+- Check 096: tenant_id must never be in $set for seed upserts
+- Check 097: tenant_id must never be in $set for seed upserts
+- Check 098: tenant_id must never be in $set for seed upserts
+- Check 099: tenant_id must never be in $set for seed upserts
+- Check 100: tenant_id must never be in $set for seed upserts
+- Check 101: tenant_id must never be in $set for seed upserts
+- Check 102: tenant_id must never be in $set for seed upserts
+- Check 103: tenant_id must never be in $set for seed upserts
+- Check 104: tenant_id must never be in $set for seed upserts
+- Check 105: tenant_id must never be in $set for seed upserts
+- Check 106: tenant_id must never be in $set for seed upserts
+- Check 107: tenant_id must never be in $set for seed upserts
+- Check 108: tenant_id must never be in $set for seed upserts
+- Check 109: tenant_id must never be in $set for seed upserts
+- Check 110: tenant_id must never be in $set for seed upserts
+- Check 111: tenant_id must never be in $set for seed upserts
+- Check 112: tenant_id must never be in $set for seed upserts
+- Check 113: tenant_id must never be in $set for seed upserts
+- Check 114: tenant_id must never be in $set for seed upserts
+- Check 115: tenant_id must never be in $set for seed upserts
+- Check 116: tenant_id must never be in $set for seed upserts
+- Check 117: tenant_id must never be in $set for seed upserts
+- Check 118: tenant_id must never be in $set for seed upserts
+- Check 119: tenant_id must never be in $set for seed upserts
+- Check 120: tenant_id must never be in $set for seed upserts
+- Check 121: tenant_id must never be in $set for seed upserts
+- Check 122: tenant_id must never be in $set for seed upserts
+- Check 123: tenant_id must never be in $set for seed upserts
+- Check 124: tenant_id must never be in $set for seed upserts
+- Check 125: tenant_id must never be in $set for seed upserts
+- Check 126: tenant_id must never be in $set for seed upserts
+- Check 127: tenant_id must never be in $set for seed upserts
+- Check 128: tenant_id must never be in $set for seed upserts
+- Check 129: tenant_id must never be in $set for seed upserts
+- Check 130: tenant_id must never be in $set for seed upserts
+- Check 131: tenant_id must never be in $set for seed upserts
+- Check 132: tenant_id must never be in $set for seed upserts
+- Check 133: tenant_id must never be in $set for seed upserts
+- Check 134: tenant_id must never be in $set for seed upserts
+- Check 135: tenant_id must never be in $set for seed upserts
+- Check 136: tenant_id must never be in $set for seed upserts
+- Check 137: tenant_id must never be in $set for seed upserts
+- Check 138: tenant_id must never be in $set for seed upserts
+- Check 139: tenant_id must never be in $set for seed upserts
+- Check 140: tenant_id must never be in $set for seed upserts
+- Check 141: tenant_id must never be in $set for seed upserts
+- Check 142: tenant_id must never be in $set for seed upserts
+- Check 143: tenant_id must never be in $set for seed upserts
+- Check 144: tenant_id must never be in $set for seed upserts
+- Check 145: tenant_id must never be in $set for seed upserts
+- Check 146: tenant_id must never be in $set for seed upserts
+- Check 147: tenant_id must never be in $set for seed upserts
+- Check 148: tenant_id must never be in $set for seed upserts
+- Check 149: tenant_id must never be in $set for seed upserts
+- Check 150: tenant_id must never be in $set for seed upserts
+- Check 151: tenant_id must never be in $set for seed upserts
+- Check 152: tenant_id must never be in $set for seed upserts
+- Check 153: tenant_id must never be in $set for seed upserts
+- Check 154: tenant_id must never be in $set for seed upserts
+- Check 155: tenant_id must never be in $set for seed upserts
+- Check 156: tenant_id must never be in $set for seed upserts
+- Check 157: tenant_id must never be in $set for seed upserts
+- Check 158: tenant_id must never be in $set for seed upserts
+- Check 159: tenant_id must never be in $set for seed upserts
+- Check 160: tenant_id must never be in $set for seed upserts
+- Check 161: tenant_id must never be in $set for seed upserts
+- Check 162: tenant_id must never be in $set for seed upserts
+- Check 163: tenant_id must never be in $set for seed upserts
+- Check 164: tenant_id must never be in $set for seed upserts
+- Check 165: tenant_id must never be in $set for seed upserts
+- Check 166: tenant_id must never be in $set for seed upserts
+- Check 167: tenant_id must never be in $set for seed upserts
+- Check 168: tenant_id must never be in $set for seed upserts
+- Check 169: tenant_id must never be in $set for seed upserts
+- Check 170: tenant_id must never be in $set for seed upserts
+- Check 171: tenant_id must never be in $set for seed upserts
+- Check 172: tenant_id must never be in $set for seed upserts
+- Check 173: tenant_id must never be in $set for seed upserts
+- Check 174: tenant_id must never be in $set for seed upserts
+- Check 175: tenant_id must never be in $set for seed upserts
+- Check 176: tenant_id must never be in $set for seed upserts
+- Check 177: tenant_id must never be in $set for seed upserts
+- Check 178: tenant_id must never be in $set for seed upserts
+- Check 179: tenant_id must never be in $set for seed upserts
+- Check 180: tenant_id must never be in $set for seed upserts
+- Check 181: tenant_id must never be in $set for seed upserts
+- Check 182: tenant_id must never be in $set for seed upserts
+- Check 183: tenant_id must never be in $set for seed upserts
+- Check 184: tenant_id must never be in $set for seed upserts
+- Check 185: tenant_id must never be in $set for seed upserts
+- Check 186: tenant_id must never be in $set for seed upserts
+- Check 187: tenant_id must never be in $set for seed upserts
+- Check 188: tenant_id must never be in $set for seed upserts
+- Check 189: tenant_id must never be in $set for seed upserts
+- Check 190: tenant_id must never be in $set for seed upserts
+- Check 191: tenant_id must never be in $set for seed upserts
+- Check 192: tenant_id must never be in $set for seed upserts
+- Check 193: tenant_id must never be in $set for seed upserts
+- Check 194: tenant_id must never be in $set for seed upserts
+- Check 195: tenant_id must never be in $set for seed upserts
+- Check 196: tenant_id must never be in $set for seed upserts
+- Check 197: tenant_id must never be in $set for seed upserts
+- Check 198: tenant_id must never be in $set for seed upserts
+- Check 199: tenant_id must never be in $set for seed upserts
+- Check 200: tenant_id must never be in $set for seed upserts
+
+## Appendix B: Seed Idempotency Checklist
+- Check 001: second seed run must not increase document count
+- Check 002: second seed run must not increase document count
+- Check 003: second seed run must not increase document count
+- Check 004: second seed run must not increase document count
+- Check 005: second seed run must not increase document count
+- Check 006: second seed run must not increase document count
+- Check 007: second seed run must not increase document count
+- Check 008: second seed run must not increase document count
+- Check 009: second seed run must not increase document count
+- Check 010: second seed run must not increase document count
+- Check 011: second seed run must not increase document count
+- Check 012: second seed run must not increase document count
+- Check 013: second seed run must not increase document count
+- Check 014: second seed run must not increase document count
+- Check 015: second seed run must not increase document count
+- Check 016: second seed run must not increase document count
+- Check 017: second seed run must not increase document count
+- Check 018: second seed run must not increase document count
+- Check 019: second seed run must not increase document count
+- Check 020: second seed run must not increase document count
+- Check 021: second seed run must not increase document count
+- Check 022: second seed run must not increase document count
+- Check 023: second seed run must not increase document count
+- Check 024: second seed run must not increase document count
+- Check 025: second seed run must not increase document count
+- Check 026: second seed run must not increase document count
+- Check 027: second seed run must not increase document count
+- Check 028: second seed run must not increase document count
+- Check 029: second seed run must not increase document count
+- Check 030: second seed run must not increase document count
+- Check 031: second seed run must not increase document count
+- Check 032: second seed run must not increase document count
+- Check 033: second seed run must not increase document count
+- Check 034: second seed run must not increase document count
+- Check 035: second seed run must not increase document count
+- Check 036: second seed run must not increase document count
+- Check 037: second seed run must not increase document count
+- Check 038: second seed run must not increase document count
+- Check 039: second seed run must not increase document count
+- Check 040: second seed run must not increase document count
+- Check 041: second seed run must not increase document count
+- Check 042: second seed run must not increase document count
+- Check 043: second seed run must not increase document count
+- Check 044: second seed run must not increase document count
+- Check 045: second seed run must not increase document count
+- Check 046: second seed run must not increase document count
+- Check 047: second seed run must not increase document count
+- Check 048: second seed run must not increase document count
+- Check 049: second seed run must not increase document count
+- Check 050: second seed run must not increase document count
+- Check 051: second seed run must not increase document count
+- Check 052: second seed run must not increase document count
+- Check 053: second seed run must not increase document count
+- Check 054: second seed run must not increase document count
+- Check 055: second seed run must not increase document count
+- Check 056: second seed run must not increase document count
+- Check 057: second seed run must not increase document count
+- Check 058: second seed run must not increase document count
+- Check 059: second seed run must not increase document count
+- Check 060: second seed run must not increase document count
+- Check 061: second seed run must not increase document count
+- Check 062: second seed run must not increase document count
+- Check 063: second seed run must not increase document count
+- Check 064: second seed run must not increase document count
+- Check 065: second seed run must not increase document count
+- Check 066: second seed run must not increase document count
+- Check 067: second seed run must not increase document count
+- Check 068: second seed run must not increase document count
+- Check 069: second seed run must not increase document count
+- Check 070: second seed run must not increase document count
+- Check 071: second seed run must not increase document count
+- Check 072: second seed run must not increase document count
+- Check 073: second seed run must not increase document count
+- Check 074: second seed run must not increase document count
+- Check 075: second seed run must not increase document count
+- Check 076: second seed run must not increase document count
+- Check 077: second seed run must not increase document count
+- Check 078: second seed run must not increase document count
+- Check 079: second seed run must not increase document count
+- Check 080: second seed run must not increase document count
+- Check 081: second seed run must not increase document count
+- Check 082: second seed run must not increase document count
+- Check 083: second seed run must not increase document count
+- Check 084: second seed run must not increase document count
+- Check 085: second seed run must not increase document count
+- Check 086: second seed run must not increase document count
+- Check 087: second seed run must not increase document count
+- Check 088: second seed run must not increase document count
+- Check 089: second seed run must not increase document count
+- Check 090: second seed run must not increase document count
+- Check 091: second seed run must not increase document count
+- Check 092: second seed run must not increase document count
+- Check 093: second seed run must not increase document count
+- Check 094: second seed run must not increase document count
+- Check 095: second seed run must not increase document count
+- Check 096: second seed run must not increase document count
+- Check 097: second seed run must not increase document count
+- Check 098: second seed run must not increase document count
+- Check 099: second seed run must not increase document count
+- Check 100: second seed run must not increase document count
+- Check 101: second seed run must not increase document count
+- Check 102: second seed run must not increase document count
+- Check 103: second seed run must not increase document count
+- Check 104: second seed run must not increase document count
+- Check 105: second seed run must not increase document count
+- Check 106: second seed run must not increase document count
+- Check 107: second seed run must not increase document count
+- Check 108: second seed run must not increase document count
+- Check 109: second seed run must not increase document count
+- Check 110: second seed run must not increase document count
+- Check 111: second seed run must not increase document count
+- Check 112: second seed run must not increase document count
+- Check 113: second seed run must not increase document count
+- Check 114: second seed run must not increase document count
+- Check 115: second seed run must not increase document count
+- Check 116: second seed run must not increase document count
+- Check 117: second seed run must not increase document count
+- Check 118: second seed run must not increase document count
+- Check 119: second seed run must not increase document count
+- Check 120: second seed run must not increase document count
+- Check 121: second seed run must not increase document count
+- Check 122: second seed run must not increase document count
+- Check 123: second seed run must not increase document count
+- Check 124: second seed run must not increase document count
+- Check 125: second seed run must not increase document count
+- Check 126: second seed run must not increase document count
+- Check 127: second seed run must not increase document count
+- Check 128: second seed run must not increase document count
+- Check 129: second seed run must not increase document count
+- Check 130: second seed run must not increase document count
+- Check 131: second seed run must not increase document count
+- Check 132: second seed run must not increase document count
+- Check 133: second seed run must not increase document count
+- Check 134: second seed run must not increase document count
+- Check 135: second seed run must not increase document count
+- Check 136: second seed run must not increase document count
+- Check 137: second seed run must not increase document count
+- Check 138: second seed run must not increase document count
+- Check 139: second seed run must not increase document count
+- Check 140: second seed run must not increase document count
+- Check 141: second seed run must not increase document count
+- Check 142: second seed run must not increase document count
+- Check 143: second seed run must not increase document count
+- Check 144: second seed run must not increase document count
+- Check 145: second seed run must not increase document count
+- Check 146: second seed run must not increase document count
+- Check 147: second seed run must not increase document count
+- Check 148: second seed run must not increase document count
+- Check 149: second seed run must not increase document count
+- Check 150: second seed run must not increase document count
+- Check 151: second seed run must not increase document count
+- Check 152: second seed run must not increase document count
+- Check 153: second seed run must not increase document count
+- Check 154: second seed run must not increase document count
+- Check 155: second seed run must not increase document count
+- Check 156: second seed run must not increase document count
+- Check 157: second seed run must not increase document count
+- Check 158: second seed run must not increase document count
+- Check 159: second seed run must not increase document count
+- Check 160: second seed run must not increase document count
+- Check 161: second seed run must not increase document count
+- Check 162: second seed run must not increase document count
+- Check 163: second seed run must not increase document count
+- Check 164: second seed run must not increase document count
+- Check 165: second seed run must not increase document count
+- Check 166: second seed run must not increase document count
+- Check 167: second seed run must not increase document count
+- Check 168: second seed run must not increase document count
+- Check 169: second seed run must not increase document count
+- Check 170: second seed run must not increase document count
+- Check 171: second seed run must not increase document count
+- Check 172: second seed run must not increase document count
+- Check 173: second seed run must not increase document count
+- Check 174: second seed run must not increase document count
+- Check 175: second seed run must not increase document count
+- Check 176: second seed run must not increase document count
+- Check 177: second seed run must not increase document count
+- Check 178: second seed run must not increase document count
+- Check 179: second seed run must not increase document count
+- Check 180: second seed run must not increase document count
+- Check 181: second seed run must not increase document count
+- Check 182: second seed run must not increase document count
+- Check 183: second seed run must not increase document count
+- Check 184: second seed run must not increase document count
+- Check 185: second seed run must not increase document count
+- Check 186: second seed run must not increase document count
+- Check 187: second seed run must not increase document count
+- Check 188: second seed run must not increase document count
+- Check 189: second seed run must not increase document count
+- Check 190: second seed run must not increase document count
+- Check 191: second seed run must not increase document count
+- Check 192: second seed run must not increase document count
+- Check 193: second seed run must not increase document count
+- Check 194: second seed run must not increase document count
+- Check 195: second seed run must not increase document count
+- Check 196: second seed run must not increase document count
+- Check 197: second seed run must not increase document count
+- Check 198: second seed run must not increase document count
+- Check 199: second seed run must not increase document count
+- Check 200: second seed run must not increase document count
+
+## Appendix C: Seed Safety Checklist
+- Check 001: created_at only in $setOnInsert
+- Check 002: created_at only in $setOnInsert
+- Check 003: created_at only in $setOnInsert
+- Check 004: created_at only in $setOnInsert
+- Check 005: created_at only in $setOnInsert
+- Check 006: created_at only in $setOnInsert
+- Check 007: created_at only in $setOnInsert
+- Check 008: created_at only in $setOnInsert
+- Check 009: created_at only in $setOnInsert
+- Check 010: created_at only in $setOnInsert
+- Check 011: created_at only in $setOnInsert
+- Check 012: created_at only in $setOnInsert
+- Check 013: created_at only in $setOnInsert
+- Check 014: created_at only in $setOnInsert
+- Check 015: created_at only in $setOnInsert
+- Check 016: created_at only in $setOnInsert
+- Check 017: created_at only in $setOnInsert
+- Check 018: created_at only in $setOnInsert
+- Check 019: created_at only in $setOnInsert
+- Check 020: created_at only in $setOnInsert
+- Check 021: created_at only in $setOnInsert
+- Check 022: created_at only in $setOnInsert
+- Check 023: created_at only in $setOnInsert
+- Check 024: created_at only in $setOnInsert
+- Check 025: created_at only in $setOnInsert
+- Check 026: created_at only in $setOnInsert
+- Check 027: created_at only in $setOnInsert
+- Check 028: created_at only in $setOnInsert
+- Check 029: created_at only in $setOnInsert
+- Check 030: created_at only in $setOnInsert
+- Check 031: created_at only in $setOnInsert
+- Check 032: created_at only in $setOnInsert
+- Check 033: created_at only in $setOnInsert
+- Check 034: created_at only in $setOnInsert
+- Check 035: created_at only in $setOnInsert
+- Check 036: created_at only in $setOnInsert
+- Check 037: created_at only in $setOnInsert
+- Check 038: created_at only in $setOnInsert
+- Check 039: created_at only in $setOnInsert
+- Check 040: created_at only in $setOnInsert
+- Check 041: created_at only in $setOnInsert
+- Check 042: created_at only in $setOnInsert
+- Check 043: created_at only in $setOnInsert
+- Check 044: created_at only in $setOnInsert
+- Check 045: created_at only in $setOnInsert
+- Check 046: created_at only in $setOnInsert
+- Check 047: created_at only in $setOnInsert
+- Check 048: created_at only in $setOnInsert
+- Check 049: created_at only in $setOnInsert
+- Check 050: created_at only in $setOnInsert
+- Check 051: created_at only in $setOnInsert
+- Check 052: created_at only in $setOnInsert
+- Check 053: created_at only in $setOnInsert
+- Check 054: created_at only in $setOnInsert
+- Check 055: created_at only in $setOnInsert
+- Check 056: created_at only in $setOnInsert
+- Check 057: created_at only in $setOnInsert
+- Check 058: created_at only in $setOnInsert
+- Check 059: created_at only in $setOnInsert
+- Check 060: created_at only in $setOnInsert
+- Check 061: created_at only in $setOnInsert
+- Check 062: created_at only in $setOnInsert
+- Check 063: created_at only in $setOnInsert
+- Check 064: created_at only in $setOnInsert
+- Check 065: created_at only in $setOnInsert
+- Check 066: created_at only in $setOnInsert
+- Check 067: created_at only in $setOnInsert
+- Check 068: created_at only in $setOnInsert
+- Check 069: created_at only in $setOnInsert
+- Check 070: created_at only in $setOnInsert
+- Check 071: created_at only in $setOnInsert
+- Check 072: created_at only in $setOnInsert
+- Check 073: created_at only in $setOnInsert
+- Check 074: created_at only in $setOnInsert
+- Check 075: created_at only in $setOnInsert
+- Check 076: created_at only in $setOnInsert
+- Check 077: created_at only in $setOnInsert
+- Check 078: created_at only in $setOnInsert
+- Check 079: created_at only in $setOnInsert
+- Check 080: created_at only in $setOnInsert
+- Check 081: created_at only in $setOnInsert
+- Check 082: created_at only in $setOnInsert
+- Check 083: created_at only in $setOnInsert
+- Check 084: created_at only in $setOnInsert
+- Check 085: created_at only in $setOnInsert
+- Check 086: created_at only in $setOnInsert
+- Check 087: created_at only in $setOnInsert
+- Check 088: created_at only in $setOnInsert
+- Check 089: created_at only in $setOnInsert
+- Check 090: created_at only in $setOnInsert
+- Check 091: created_at only in $setOnInsert
+- Check 092: created_at only in $setOnInsert
+- Check 093: created_at only in $setOnInsert
+- Check 094: created_at only in $setOnInsert
+- Check 095: created_at only in $setOnInsert
+- Check 096: created_at only in $setOnInsert
+- Check 097: created_at only in $setOnInsert
+- Check 098: created_at only in $setOnInsert
+- Check 099: created_at only in $setOnInsert
+- Check 100: created_at only in $setOnInsert
+- Check 101: created_at only in $setOnInsert
+- Check 102: created_at only in $setOnInsert
+- Check 103: created_at only in $setOnInsert
+- Check 104: created_at only in $setOnInsert
+- Check 105: created_at only in $setOnInsert
+- Check 106: created_at only in $setOnInsert
+- Check 107: created_at only in $setOnInsert
+- Check 108: created_at only in $setOnInsert
+- Check 109: created_at only in $setOnInsert
+- Check 110: created_at only in $setOnInsert
+- Check 111: created_at only in $setOnInsert
+- Check 112: created_at only in $setOnInsert
+- Check 113: created_at only in $setOnInsert
+- Check 114: created_at only in $setOnInsert
+- Check 115: created_at only in $setOnInsert
+- Check 116: created_at only in $setOnInsert
+- Check 117: created_at only in $setOnInsert
+- Check 118: created_at only in $setOnInsert
+- Check 119: created_at only in $setOnInsert
+- Check 120: created_at only in $setOnInsert
+- Check 121: created_at only in $setOnInsert
+- Check 122: created_at only in $setOnInsert
+- Check 123: created_at only in $setOnInsert
+- Check 124: created_at only in $setOnInsert
+- Check 125: created_at only in $setOnInsert
+- Check 126: created_at only in $setOnInsert
+- Check 127: created_at only in $setOnInsert
+- Check 128: created_at only in $setOnInsert
+- Check 129: created_at only in $setOnInsert
+- Check 130: created_at only in $setOnInsert
+- Check 131: created_at only in $setOnInsert
+- Check 132: created_at only in $setOnInsert
+- Check 133: created_at only in $setOnInsert
+- Check 134: created_at only in $setOnInsert
+- Check 135: created_at only in $setOnInsert
+- Check 136: created_at only in $setOnInsert
+- Check 137: created_at only in $setOnInsert
+- Check 138: created_at only in $setOnInsert
+- Check 139: created_at only in $setOnInsert
+- Check 140: created_at only in $setOnInsert
+- Check 141: created_at only in $setOnInsert
+- Check 142: created_at only in $setOnInsert
+- Check 143: created_at only in $setOnInsert
+- Check 144: created_at only in $setOnInsert
+- Check 145: created_at only in $setOnInsert
+- Check 146: created_at only in $setOnInsert
+- Check 147: created_at only in $setOnInsert
+- Check 148: created_at only in $setOnInsert
+- Check 149: created_at only in $setOnInsert
+- Check 150: created_at only in $setOnInsert
+- Check 151: created_at only in $setOnInsert
+- Check 152: created_at only in $setOnInsert
+- Check 153: created_at only in $setOnInsert
+- Check 154: created_at only in $setOnInsert
+- Check 155: created_at only in $setOnInsert
+- Check 156: created_at only in $setOnInsert
+- Check 157: created_at only in $setOnInsert
+- Check 158: created_at only in $setOnInsert
+- Check 159: created_at only in $setOnInsert
+- Check 160: created_at only in $setOnInsert
+- Check 161: created_at only in $setOnInsert
+- Check 162: created_at only in $setOnInsert
+- Check 163: created_at only in $setOnInsert
+- Check 164: created_at only in $setOnInsert
+- Check 165: created_at only in $setOnInsert
+- Check 166: created_at only in $setOnInsert
+- Check 167: created_at only in $setOnInsert
+- Check 168: created_at only in $setOnInsert
+- Check 169: created_at only in $setOnInsert
+- Check 170: created_at only in $setOnInsert
+- Check 171: created_at only in $setOnInsert
+- Check 172: created_at only in $setOnInsert
+- Check 173: created_at only in $setOnInsert
+- Check 174: created_at only in $setOnInsert
+- Check 175: created_at only in $setOnInsert
+- Check 176: created_at only in $setOnInsert
+- Check 177: created_at only in $setOnInsert
+- Check 178: created_at only in $setOnInsert
+- Check 179: created_at only in $setOnInsert
+- Check 180: created_at only in $setOnInsert
+- Check 181: created_at only in $setOnInsert
+- Check 182: created_at only in $setOnInsert
+- Check 183: created_at only in $setOnInsert
+- Check 184: created_at only in $setOnInsert
+- Check 185: created_at only in $setOnInsert
+- Check 186: created_at only in $setOnInsert
+- Check 187: created_at only in $setOnInsert
+- Check 188: created_at only in $setOnInsert
+- Check 189: created_at only in $setOnInsert
+- Check 190: created_at only in $setOnInsert
+- Check 191: created_at only in $setOnInsert
+- Check 192: created_at only in $setOnInsert
+- Check 193: created_at only in $setOnInsert
+- Check 194: created_at only in $setOnInsert
+- Check 195: created_at only in $setOnInsert
+- Check 196: created_at only in $setOnInsert
+- Check 197: created_at only in $setOnInsert
+- Check 198: created_at only in $setOnInsert
+- Check 199: created_at only in $setOnInsert
+- Check 200: created_at only in $setOnInsert
+
+## Appendix D: Upsert Helper Usage Checklist
+- Check 001: SafeTenantUpsert used for all seed writes
+- Check 002: SafeTenantUpsert used for all seed writes
+- Check 003: SafeTenantUpsert used for all seed writes
+- Check 004: SafeTenantUpsert used for all seed writes
+- Check 005: SafeTenantUpsert used for all seed writes
+- Check 006: SafeTenantUpsert used for all seed writes
+- Check 007: SafeTenantUpsert used for all seed writes
+- Check 008: SafeTenantUpsert used for all seed writes
+- Check 009: SafeTenantUpsert used for all seed writes
+- Check 010: SafeTenantUpsert used for all seed writes
+- Check 011: SafeTenantUpsert used for all seed writes
+- Check 012: SafeTenantUpsert used for all seed writes
+- Check 013: SafeTenantUpsert used for all seed writes
+- Check 014: SafeTenantUpsert used for all seed writes
+- Check 015: SafeTenantUpsert used for all seed writes
+- Check 016: SafeTenantUpsert used for all seed writes
+- Check 017: SafeTenantUpsert used for all seed writes
+- Check 018: SafeTenantUpsert used for all seed writes
+- Check 019: SafeTenantUpsert used for all seed writes
+- Check 020: SafeTenantUpsert used for all seed writes
+- Check 021: SafeTenantUpsert used for all seed writes
+- Check 022: SafeTenantUpsert used for all seed writes
+- Check 023: SafeTenantUpsert used for all seed writes
+- Check 024: SafeTenantUpsert used for all seed writes
+- Check 025: SafeTenantUpsert used for all seed writes
+- Check 026: SafeTenantUpsert used for all seed writes
+- Check 027: SafeTenantUpsert used for all seed writes
+- Check 028: SafeTenantUpsert used for all seed writes
+- Check 029: SafeTenantUpsert used for all seed writes
+- Check 030: SafeTenantUpsert used for all seed writes
+- Check 031: SafeTenantUpsert used for all seed writes
+- Check 032: SafeTenantUpsert used for all seed writes
+- Check 033: SafeTenantUpsert used for all seed writes
+- Check 034: SafeTenantUpsert used for all seed writes
+- Check 035: SafeTenantUpsert used for all seed writes
+- Check 036: SafeTenantUpsert used for all seed writes
+- Check 037: SafeTenantUpsert used for all seed writes
+- Check 038: SafeTenantUpsert used for all seed writes
+- Check 039: SafeTenantUpsert used for all seed writes
+- Check 040: SafeTenantUpsert used for all seed writes
+- Check 041: SafeTenantUpsert used for all seed writes
+- Check 042: SafeTenantUpsert used for all seed writes
+- Check 043: SafeTenantUpsert used for all seed writes
+- Check 044: SafeTenantUpsert used for all seed writes
+- Check 045: SafeTenantUpsert used for all seed writes
+- Check 046: SafeTenantUpsert used for all seed writes
+- Check 047: SafeTenantUpsert used for all seed writes
+- Check 048: SafeTenantUpsert used for all seed writes
+- Check 049: SafeTenantUpsert used for all seed writes
+- Check 050: SafeTenantUpsert used for all seed writes
+- Check 051: SafeTenantUpsert used for all seed writes
+- Check 052: SafeTenantUpsert used for all seed writes
+- Check 053: SafeTenantUpsert used for all seed writes
+- Check 054: SafeTenantUpsert used for all seed writes
+- Check 055: SafeTenantUpsert used for all seed writes
+- Check 056: SafeTenantUpsert used for all seed writes
+- Check 057: SafeTenantUpsert used for all seed writes
+- Check 058: SafeTenantUpsert used for all seed writes
+- Check 059: SafeTenantUpsert used for all seed writes
+- Check 060: SafeTenantUpsert used for all seed writes
+- Check 061: SafeTenantUpsert used for all seed writes
+- Check 062: SafeTenantUpsert used for all seed writes
+- Check 063: SafeTenantUpsert used for all seed writes
+- Check 064: SafeTenantUpsert used for all seed writes
+- Check 065: SafeTenantUpsert used for all seed writes
+- Check 066: SafeTenantUpsert used for all seed writes
+- Check 067: SafeTenantUpsert used for all seed writes
+- Check 068: SafeTenantUpsert used for all seed writes
+- Check 069: SafeTenantUpsert used for all seed writes
+- Check 070: SafeTenantUpsert used for all seed writes
+- Check 071: SafeTenantUpsert used for all seed writes
+- Check 072: SafeTenantUpsert used for all seed writes
+- Check 073: SafeTenantUpsert used for all seed writes
+- Check 074: SafeTenantUpsert used for all seed writes
+- Check 075: SafeTenantUpsert used for all seed writes
+- Check 076: SafeTenantUpsert used for all seed writes
+- Check 077: SafeTenantUpsert used for all seed writes
+- Check 078: SafeTenantUpsert used for all seed writes
+- Check 079: SafeTenantUpsert used for all seed writes
+- Check 080: SafeTenantUpsert used for all seed writes
+- Check 081: SafeTenantUpsert used for all seed writes
+- Check 082: SafeTenantUpsert used for all seed writes
+- Check 083: SafeTenantUpsert used for all seed writes
+- Check 084: SafeTenantUpsert used for all seed writes
+- Check 085: SafeTenantUpsert used for all seed writes
+- Check 086: SafeTenantUpsert used for all seed writes
+- Check 087: SafeTenantUpsert used for all seed writes
+- Check 088: SafeTenantUpsert used for all seed writes
+- Check 089: SafeTenantUpsert used for all seed writes
+- Check 090: SafeTenantUpsert used for all seed writes
+- Check 091: SafeTenantUpsert used for all seed writes
+- Check 092: SafeTenantUpsert used for all seed writes
+- Check 093: SafeTenantUpsert used for all seed writes
+- Check 094: SafeTenantUpsert used for all seed writes
+- Check 095: SafeTenantUpsert used for all seed writes
+- Check 096: SafeTenantUpsert used for all seed writes
+- Check 097: SafeTenantUpsert used for all seed writes
+- Check 098: SafeTenantUpsert used for all seed writes
+- Check 099: SafeTenantUpsert used for all seed writes
+- Check 100: SafeTenantUpsert used for all seed writes
+- Check 101: SafeTenantUpsert used for all seed writes
+- Check 102: SafeTenantUpsert used for all seed writes
+- Check 103: SafeTenantUpsert used for all seed writes
+- Check 104: SafeTenantUpsert used for all seed writes
+- Check 105: SafeTenantUpsert used for all seed writes
+- Check 106: SafeTenantUpsert used for all seed writes
+- Check 107: SafeTenantUpsert used for all seed writes
+- Check 108: SafeTenantUpsert used for all seed writes
+- Check 109: SafeTenantUpsert used for all seed writes
+- Check 110: SafeTenantUpsert used for all seed writes
+- Check 111: SafeTenantUpsert used for all seed writes
+- Check 112: SafeTenantUpsert used for all seed writes
+- Check 113: SafeTenantUpsert used for all seed writes
+- Check 114: SafeTenantUpsert used for all seed writes
+- Check 115: SafeTenantUpsert used for all seed writes
+- Check 116: SafeTenantUpsert used for all seed writes
+- Check 117: SafeTenantUpsert used for all seed writes
+- Check 118: SafeTenantUpsert used for all seed writes
+- Check 119: SafeTenantUpsert used for all seed writes
+- Check 120: SafeTenantUpsert used for all seed writes
+- Check 121: SafeTenantUpsert used for all seed writes
+- Check 122: SafeTenantUpsert used for all seed writes
+- Check 123: SafeTenantUpsert used for all seed writes
+- Check 124: SafeTenantUpsert used for all seed writes
+- Check 125: SafeTenantUpsert used for all seed writes
+- Check 126: SafeTenantUpsert used for all seed writes
+- Check 127: SafeTenantUpsert used for all seed writes
+- Check 128: SafeTenantUpsert used for all seed writes
+- Check 129: SafeTenantUpsert used for all seed writes
+- Check 130: SafeTenantUpsert used for all seed writes
+- Check 131: SafeTenantUpsert used for all seed writes
+- Check 132: SafeTenantUpsert used for all seed writes
+- Check 133: SafeTenantUpsert used for all seed writes
+- Check 134: SafeTenantUpsert used for all seed writes
+- Check 135: SafeTenantUpsert used for all seed writes
+- Check 136: SafeTenantUpsert used for all seed writes
+- Check 137: SafeTenantUpsert used for all seed writes
+- Check 138: SafeTenantUpsert used for all seed writes
+- Check 139: SafeTenantUpsert used for all seed writes
+- Check 140: SafeTenantUpsert used for all seed writes
+- Check 141: SafeTenantUpsert used for all seed writes
+- Check 142: SafeTenantUpsert used for all seed writes
+- Check 143: SafeTenantUpsert used for all seed writes
+- Check 144: SafeTenantUpsert used for all seed writes
+- Check 145: SafeTenantUpsert used for all seed writes
+- Check 146: SafeTenantUpsert used for all seed writes
+- Check 147: SafeTenantUpsert used for all seed writes
+- Check 148: SafeTenantUpsert used for all seed writes
+- Check 149: SafeTenantUpsert used for all seed writes
+- Check 150: SafeTenantUpsert used for all seed writes
+- Check 151: SafeTenantUpsert used for all seed writes
+- Check 152: SafeTenantUpsert used for all seed writes
+- Check 153: SafeTenantUpsert used for all seed writes
+- Check 154: SafeTenantUpsert used for all seed writes
+- Check 155: SafeTenantUpsert used for all seed writes
+- Check 156: SafeTenantUpsert used for all seed writes
+- Check 157: SafeTenantUpsert used for all seed writes
+- Check 158: SafeTenantUpsert used for all seed writes
+- Check 159: SafeTenantUpsert used for all seed writes
+- Check 160: SafeTenantUpsert used for all seed writes
+- Check 161: SafeTenantUpsert used for all seed writes
+- Check 162: SafeTenantUpsert used for all seed writes
+- Check 163: SafeTenantUpsert used for all seed writes
+- Check 164: SafeTenantUpsert used for all seed writes
+- Check 165: SafeTenantUpsert used for all seed writes
+- Check 166: SafeTenantUpsert used for all seed writes
+- Check 167: SafeTenantUpsert used for all seed writes
+- Check 168: SafeTenantUpsert used for all seed writes
+- Check 169: SafeTenantUpsert used for all seed writes
+- Check 170: SafeTenantUpsert used for all seed writes
+- Check 171: SafeTenantUpsert used for all seed writes
+- Check 172: SafeTenantUpsert used for all seed writes
+- Check 173: SafeTenantUpsert used for all seed writes
+- Check 174: SafeTenantUpsert used for all seed writes
+- Check 175: SafeTenantUpsert used for all seed writes
+- Check 176: SafeTenantUpsert used for all seed writes
+- Check 177: SafeTenantUpsert used for all seed writes
+- Check 178: SafeTenantUpsert used for all seed writes
+- Check 179: SafeTenantUpsert used for all seed writes
+- Check 180: SafeTenantUpsert used for all seed writes
+- Check 181: SafeTenantUpsert used for all seed writes
+- Check 182: SafeTenantUpsert used for all seed writes
+- Check 183: SafeTenantUpsert used for all seed writes
+- Check 184: SafeTenantUpsert used for all seed writes
+- Check 185: SafeTenantUpsert used for all seed writes
+- Check 186: SafeTenantUpsert used for all seed writes
+- Check 187: SafeTenantUpsert used for all seed writes
+- Check 188: SafeTenantUpsert used for all seed writes
+- Check 189: SafeTenantUpsert used for all seed writes
+- Check 190: SafeTenantUpsert used for all seed writes
+- Check 191: SafeTenantUpsert used for all seed writes
+- Check 192: SafeTenantUpsert used for all seed writes
+- Check 193: SafeTenantUpsert used for all seed writes
+- Check 194: SafeTenantUpsert used for all seed writes
+- Check 195: SafeTenantUpsert used for all seed writes
+- Check 196: SafeTenantUpsert used for all seed writes
+- Check 197: SafeTenantUpsert used for all seed writes
+- Check 198: SafeTenantUpsert used for all seed writes
+- Check 199: SafeTenantUpsert used for all seed writes
+- Check 200: SafeTenantUpsert used for all seed writes

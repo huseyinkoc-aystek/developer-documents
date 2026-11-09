@@ -1,0 +1,820 @@
+diff --git a/app/(dashboard)/admin/access-points/[id]/page.tsx b/app/(dashboard)/admin/access-points/[id]/page.tsx
+index 1bebc15..fcdc8c5 100644
+--- a/app/(dashboard)/admin/access-points/[id]/page.tsx
++++ b/app/(dashboard)/admin/access-points/[id]/page.tsx
+@@ -21,6 +21,11 @@ import { institutionsApi } from "@/lib/api/institutions";
+ import { apiClientsApi } from "@/lib/api/api-clients";
+ import { fleetTallyApi } from "@/lib/api/fleet-tally";
+ import { productsApi } from "@/lib/api/products";
++import {
++  accessPointToEditForm,
++  performAccessPointSave,
++  type AccessPointEditForm,
++} from "@/lib/forms/accessPointPayload";
+ import type {
+   AccessEvent,
+   AccessPoint,
+@@ -153,7 +158,7 @@ export default function AccessPointDetailPage() {
+   );
+   const [products, setProducts] = useState<Product[]>([]);
+   const [events, setEvents] = useState<AccessEvent[]>([]);
+-  const [form, setForm] = useState({
++  const [form, setForm] = useState<AccessPointEditForm>({
+     name: "",
+     vehicle_plate: "",
+     kind: "fare_transport" as AccessPointKind,
+@@ -166,6 +171,7 @@ export default function AccessPointDetailPage() {
+     sale_product_ids: [] as string[],
+     requires_approval: false,
+     cash_fallback_enabled: false,
++    pos_enabled: false,
+     status: "active" as AccessPointStatus,
+   });
+   const [deleteOpen, setDeleteOpen] = useState(false);
+@@ -177,21 +183,7 @@ export default function AccessPointDetailPage() {
+     try {
+       const res = await accessPointsApi.get(id);
+       setItem(res);
+-      setForm({
+-        name: res.name,
+-        vehicle_plate: res.vehicle_plate ?? "",
+-        kind: res.kind,
+-        institution_id: res.institution_id ?? "",
+-        pricing_mode: res.pricing_mode,
+-        fee: res.fee ?? 0,
+-        currency: res.currency ?? "TRY",
+-        device_bindings: res.device_bindings ?? [],
+-        scheduled_route_ids: res.scheduled_route_ids ?? [],
+-        sale_product_ids: res.sale_product_ids ?? [],
+-        requires_approval: res.requires_approval ?? false,
+-        cash_fallback_enabled: res.cash_fallback_enabled ?? false,
+-        status: res.status,
+-      });
++      setForm(accessPointToEditForm(res));
+       void accessPointsApi
+         .listEvents(id, { limit: 10 })
+         .then((result) => setEvents(result.items))
+@@ -306,30 +298,42 @@ export default function AccessPointDetailPage() {
+     if (!canUpdate) return;
+     setSaving(true);
+     try {
+-      await accessPointsApi.update(id, {
+-        ...form,
+-        vehicle_plate: form.vehicle_plate || undefined,
+-        institution_id: form.institution_id || undefined,
+-        device_bindings: form.device_bindings,
+-      });
++      // performAccessPointSave is the entire decision: it refuses to call
++      // accessPointsApi.update at all when the plate/POS flag could not be
++      // trusted (a missing value would otherwise clear them on save).
++      const result = await performAccessPointSave(item, id, form, (apId, payload) =>
++        accessPointsApi.update(apId, payload),
++      );
++      if (result.status === "blocked") {
++        showNotice({
++          type: "error",
++          message:
++            result.reason === "unreadable_fields"
++              ? `${t("common.saveFailed", "Kaydedilemedi")}: ${result.unreadable.join(", ")}`
++              : t("common.saveFailed", "Kaydedilemedi"),
++        });
++        return;
++      }
++      if (result.status === "save_failed") {
++        const e2 = result.error as {
++          response?: { status?: number; data?: unknown };
++          message?: string;
++        };
++        showNotice({
++          type: "error",
++          message: extractApiErrorMessage(
++            e2?.response?.status,
++            e2?.response?.data,
++            e2?.message,
++          ),
++        });
++        return;
++      }
+       showNotice({
+         type: "success",
+         message: t("access_points.notice.updated", "Güncellendi"),
+       });
+       await load();
+-    } catch (err) {
+-      const e2 = err as {
+-        response?: { status?: number; data?: unknown };
+-        message?: string;
+-      };
+-      showNotice({
+-        type: "error",
+-        message: extractApiErrorMessage(
+-          e2?.response?.status,
+-          e2?.response?.data,
+-          e2?.message,
+-        ),
+-      });
+     } finally {
+       setSaving(false);
+     }
+diff --git a/lib/api/access-points.ts b/lib/api/access-points.ts
+index f8de64f..7fd9ed0 100644
+--- a/lib/api/access-points.ts
++++ b/lib/api/access-points.ts
+@@ -40,13 +40,60 @@ export interface AccessPointsListResult {
+   total_pages: number;
+ }
+ 
++// dto.AccessPointResponse (aystek-core 3a3bb86 / f48748f) tags vehicle_plate and
++// pos_enabled `omitempty`, so the backend writes "" and false as an absent key.
++// Reading an absent key as ""/false is only safe on a body that actually looks
++// like one of these responses — so looksLikeAccessPointResponse checks every
++// field the DTO does NOT mark omitempty (always present on a real response),
++// including that the id is a string. This is a shape heuristic, not a
++// version/contract guarantee: a backend on a different DTO version, or a proxy
++// that reshapes the body, can still produce something that passes it while
++// omitting a field for a different reason. It also says nothing about whether
++// this is the RIGHT record — see prepareAccessPointUpdate's separate id check.
++// Outside that shape, or on null/wrong-typed vehicle_plate/pos_enabled (which
++// the backend never sends), the value is undefined ("unreadable"), and callers
++// must not swap in ""/false for it — the update endpoint assigns both fields
++// unconditionally.
++const REQUIRED_RESPONSE_STRING_FIELDS = [
++  "id",
++  "tenant_id",
++  "site_id",
++  "name",
++  "kind",
++  "pricing_mode",
++  "status",
++  "created_at",
++  "updated_at",
++] as const;
++
++const looksLikeAccessPointResponse = (s: Record<string, unknown>): boolean => {
++  const id = s.id ?? s._id;
++  if (typeof id !== "string" || id === "") return false;
++  if (typeof s.requires_approval !== "boolean") return false;
++  return REQUIRED_RESPONSE_STRING_FIELDS.filter((k) => k !== "id").every(
++    (key) => typeof s[key] === "string" && s[key] !== "",
++  );
++};
++
++const readOmitEmptyString = (v: unknown, responseShapeOk: boolean): string | undefined => {
++  if (typeof v === "string") return v;
++  return v === undefined && responseShapeOk ? "" : undefined;
++};
++
++const readOmitEmptyBoolean = (v: unknown, responseShapeOk: boolean): boolean | undefined => {
++  if (typeof v === "boolean") return v;
++  return v === undefined && responseShapeOk ? false : undefined;
++};
++
+ const parseAccessPoint = (raw: unknown): AccessPoint => {
+   const s = asRecord(raw);
++  const responseShapeOk = looksLikeAccessPointResponse(s);
+   return {
+     id: normalizeId(s._id ?? s.id),
+     tenant_id: asString(s.tenant_id),
+     site_id: asString(s.site_id),
+     name: asString(s.name),
++    vehicle_plate: readOmitEmptyString(s.vehicle_plate, responseShapeOk),
+     kind: asString(s.kind, "custom") as AccessPointKind,
+     institution_id: asString(s.institution_id) || undefined,
+     pricing_mode: asString(s.pricing_mode, "free") as PricingMode,
+@@ -54,6 +101,7 @@ const parseAccessPoint = (raw: unknown): AccessPoint => {
+     currency: asString(s.currency) || undefined,
+     requires_approval: asBoolean(s.requires_approval),
+     cash_fallback_enabled: asBoolean(s.cash_fallback_enabled),
++    pos_enabled: readOmitEmptyBoolean(s.pos_enabled, responseShapeOk),
+     device_bindings: Array.isArray(s.device_bindings)
+       ? s.device_bindings.filter((v): v is string => typeof v === "string")
+       : undefined,
+@@ -70,6 +118,8 @@ const parseAccessPoint = (raw: unknown): AccessPoint => {
+   };
+ };
+ 
++export const __accessPointsPrivate__ = { parseAccessPoint };
++
+ const parseSaleItem = (raw: unknown): AccessSaleItem => {
+   const s = asRecord(raw);
+   return {
+diff --git a/lib/forms/accessPointPayload.ts b/lib/forms/accessPointPayload.ts
+new file mode 100644
+index 0000000..6040bb2
+--- /dev/null
++++ b/lib/forms/accessPointPayload.ts
+@@ -0,0 +1,125 @@
++import type {
++  AccessPoint,
++  AccessPointKind,
++  AccessPointStatus,
++  PricingMode,
++} from "@/lib/types/access-points";
++
++export interface AccessPointEditForm {
++  name: string;
++  vehicle_plate: string;
++  kind: AccessPointKind;
++  institution_id: string;
++  pricing_mode: PricingMode;
++  fee: number;
++  currency: string;
++  device_bindings: string[];
++  scheduled_route_ids: string[];
++  sale_product_ids: string[];
++  requires_approval: boolean;
++  cash_fallback_enabled: boolean;
++  pos_enabled: boolean;
++  status: AccessPointStatus;
++}
++
++// vehicle_plate and pos_enabled fall back to ""/false here only so the form has
++// something to render; prepareAccessPointUpdate refuses to send them when the
++// loaded record could not tell us the real value.
++export function accessPointToEditForm(ap: AccessPoint): AccessPointEditForm {
++  return {
++    name: ap.name,
++    vehicle_plate: ap.vehicle_plate ?? "",
++    kind: ap.kind,
++    institution_id: ap.institution_id ?? "",
++    pricing_mode: ap.pricing_mode,
++    fee: ap.fee ?? 0,
++    currency: ap.currency ?? "TRY",
++    device_bindings: ap.device_bindings ?? [],
++    scheduled_route_ids: ap.scheduled_route_ids ?? [],
++    sale_product_ids: ap.sale_product_ids ?? [],
++    requires_approval: ap.requires_approval ?? false,
++    cash_fallback_enabled: ap.cash_fallback_enabled ?? false,
++    pos_enabled: ap.pos_enabled ?? false,
++    status: ap.status,
++  };
++}
++
++// The backend's Service.Update assigns vehicle_plate and pos_enabled
++// unconditionally, so leaving either out of the PUT clears it. Both are always
++// sent, "" and false included.
++export function buildAccessPointUpdatePayload(
++  form: AccessPointEditForm,
++): Partial<AccessPoint> {
++  return {
++    ...form,
++    institution_id: form.institution_id || undefined,
++    device_bindings: form.device_bindings,
++  };
++}
++
++export type PreservedAccessPointField = "vehicle_plate" | "pos_enabled";
++
++export type AccessPointUpdateBlockReason =
++  | "not_loaded"
++  | "id_mismatch"
++  | "unreadable_fields";
++
++export type AccessPointUpdate =
++  | { ok: true; payload: Partial<AccessPoint> }
++  | { ok: false; reason: "not_loaded" }
++  | { ok: false; reason: "id_mismatch" }
++  | { ok: false; reason: "unreadable_fields"; unreadable: PreservedAccessPointField[] };
++
++// prepareAccessPointUpdate refuses to build an update payload unless the
++// loaded record both IS the record being edited (expectedId, from the route,
++// matches loaded.id — guards a stale load() racing a route-param change) and
++// carries a readable vehicle_plate/pos_enabled. A record from the wrong id
++// cannot be trusted for anything, so no field list is reported for that case.
++export function prepareAccessPointUpdate(
++  loaded: AccessPoint | null,
++  expectedId: string,
++  form: AccessPointEditForm,
++): AccessPointUpdate {
++  if (!loaded) return { ok: false, reason: "not_loaded" };
++  if (loaded.id !== expectedId) return { ok: false, reason: "id_mismatch" };
++  const unreadable: PreservedAccessPointField[] = [];
++  if (loaded.vehicle_plate === undefined) unreadable.push("vehicle_plate");
++  if (loaded.pos_enabled === undefined) unreadable.push("pos_enabled");
++  if (unreadable.length > 0) return { ok: false, reason: "unreadable_fields", unreadable };
++  return { ok: true, payload: buildAccessPointUpdatePayload(form) };
++}
++
++export type AccessPointSaveResult =
++  | { status: "blocked"; reason: "not_loaded" }
++  | { status: "blocked"; reason: "id_mismatch" }
++  | { status: "blocked"; reason: "unreadable_fields"; unreadable: PreservedAccessPointField[] }
++  | { status: "saved"; ap: AccessPoint }
++  | { status: "save_failed"; error: unknown };
++
++// performAccessPointSave is the entire decision+dispatch the edit page's
++// submit handler delegates to — prepare, and only on ok:true call `update`.
++// It exists so a test can assert, with a real call-counting stub in place of
++// accessPointsApi.update, that a blocked save never reaches the update
++// client (not just that prepareAccessPointUpdate returns ok:false in
++// isolation). The page's own code is then only the glue around this:
++// collecting item/id/form, calling this, and mapping the result to a notice.
++export async function performAccessPointSave(
++  loaded: AccessPoint | null,
++  expectedId: string,
++  form: AccessPointEditForm,
++  update: (id: string, payload: Partial<AccessPoint>) => Promise<AccessPoint>,
++): Promise<AccessPointSaveResult> {
++  const prepared = prepareAccessPointUpdate(loaded, expectedId, form);
++  if (prepared.ok === false) {
++    if (prepared.reason === "unreadable_fields") {
++      return { status: "blocked", reason: "unreadable_fields", unreadable: prepared.unreadable };
++    }
++    return { status: "blocked", reason: prepared.reason };
++  }
++  try {
++    const ap = await update(expectedId, prepared.payload);
++    return { status: "saved", ap };
++  } catch (error) {
++    return { status: "save_failed", error };
++  }
++}
+diff --git a/lib/types/access-points.ts b/lib/types/access-points.ts
+index d70d962..a730f13 100644
+--- a/lib/types/access-points.ts
++++ b/lib/types/access-points.ts
+@@ -25,6 +25,9 @@ export interface AccessPoint {
+   tenant_id: string;
+   site_id: string;
+   name: string;
++  // vehicle_plate and pos_enabled come back from the parser as undefined only
++  // when the response could not be read (see parseAccessPoint); that is not the
++  // same as "" / false and must never be replaced by them on an update.
+   vehicle_plate?: string;
+   kind: AccessPointKind;
+   institution_id?: string;
+@@ -36,6 +39,8 @@ export interface AccessPoint {
+   // an insufficient-balance metered trip in cash, or start a walk-on
+   // anonymous group cash entry — only meaningful when pricing_mode="metered".
+   cash_fallback_enabled?: boolean;
++  // pos_enabled marks an access point that takes payment through a POS device.
++  pos_enabled?: boolean;
+   // DeviceBindings stores the api-client IDs of every device bound to this AP.
+   device_bindings?: string[];
+   subscription_service_key?: string;
+diff --git a/tests/access-point-contract.test.ts b/tests/access-point-contract.test.ts
+new file mode 100644
+index 0000000..44fec0d
+--- /dev/null
++++ b/tests/access-point-contract.test.ts
+@@ -0,0 +1,460 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import path from "node:path";
++import { __accessPointsPrivate__ } from "../lib/api/access-points";
++import {
++  accessPointToEditForm,
++  performAccessPointSave,
++  prepareAccessPointUpdate,
++} from "../lib/forms/accessPointPayload";
++import type { AccessPoint } from "../lib/types/access-points";
++
++const { parseAccessPoint } = __accessPointsPrivate__;
++
++// What the Go handler (access_points/handler toResponse + dto.AccessPointResponse,
++// aystek-core 3a3bb86) puts on the wire: vehicle_plate, pos_enabled,
++// cash_fallback_enabled, device_bindings, ... are `omitempty`, so a zero value is
++// an absent key; id, tenant_id, site_id, name, kind, pricing_mode, status,
++// requires_approval, created_at and updated_at are always present. Fixtures go
++// through this function so they cannot drift from that rule.
++type GoAccessPoint = {
++  id: string;
++  tenant_id: string;
++  site_id: string;
++  name: string;
++  vehicle_plate: string;
++  kind: string;
++  institution_id: string;
++  pricing_mode: string;
++  fee: number;
++  currency: string;
++  requires_approval: boolean;
++  cash_fallback_enabled: boolean;
++  pos_enabled: boolean;
++  device_bindings: string[];
++  subscription_service_key: string;
++  scheduled_route_ids: string[];
++  sale_product_ids: string[];
++  status: string;
++  created_at: string;
++  updated_at: string;
++};
++
++const OMIT_EMPTY: (keyof GoAccessPoint)[] = [
++  "vehicle_plate",
++  "institution_id",
++  "fee",
++  "currency",
++  "cash_fallback_enabled",
++  "pos_enabled",
++  "device_bindings",
++  "subscription_service_key",
++  "scheduled_route_ids",
++  "sale_product_ids",
++];
++
++const isGoZero = (v: unknown): boolean =>
++  v === "" || v === false || v === 0 || (Array.isArray(v) && v.length === 0);
++
++const goMarshal = (ap: GoAccessPoint): Record<string, unknown> => {
++  const out: Record<string, unknown> = { ...ap };
++  for (const key of OMIT_EMPTY) if (isGoZero(out[key])) delete out[key];
++  return out;
++};
++
++const transportAp: GoAccessPoint = {
++  id: "665f00000000000000000001",
++  tenant_id: "665f000000000000000000aa",
++  site_id: "665f000000000000000000bb",
++  name: "Servis 34",
++  vehicle_plate: "34 ABC 123",
++  kind: "fare_transport",
++  institution_id: "665f0000000000000000000a",
++  pricing_mode: "metered",
++  fee: 12.5,
++  currency: "TRY",
++  requires_approval: true,
++  cash_fallback_enabled: true,
++  pos_enabled: true,
++  device_bindings: ["665f0000000000000000000b"],
++  subscription_service_key: "",
++  scheduled_route_ids: ["665f0000000000000000000c"],
++  sale_product_ids: [],
++  status: "active",
++  created_at: "2026-10-01T10:00:00Z",
++  updated_at: "2026-10-02T10:00:00Z",
++};
++
++const canteenAp: GoAccessPoint = {
++  ...transportAp,
++  id: "665f00000000000000000002",
++  name: "Yemekhane",
++  vehicle_plate: "",
++  kind: "canteen",
++  pricing_mode: "fixed_fee",
++  cash_fallback_enabled: false,
++  pos_enabled: false,
++  device_bindings: [],
++  scheduled_route_ids: [],
++  sale_product_ids: ["665f0000000000000000000d"],
++};
++
++const wire = (payload: unknown): Record<string, unknown> =>
++  JSON.parse(JSON.stringify(payload));
++
++const load = (ap: GoAccessPoint): AccessPoint => parseAccessPoint(goMarshal(ap));
++
++const prepared = (ap: AccessPoint, form: ReturnType<typeof accessPointToEditForm>) => {
++  const result = prepareAccessPointUpdate(ap, ap.id, form);
++  assert.equal(result.ok, true);
++  return result.ok ? wire(result.payload) : {};
++};
++
++test("access point parser keeps the vehicle plate and POS flag the backend sent", () => {
++  const ap = load(transportAp);
++
++  assert.equal(ap.vehicle_plate, "34 ABC 123");
++  assert.equal(ap.pos_enabled, true);
++});
++
++test("access point parser reads omitted zero values as known empty/false, not as unreadable", () => {
++  const ap = load(canteenAp);
++
++  assert.equal(ap.vehicle_plate, "");
++  assert.equal(ap.pos_enabled, false);
++  assert.equal(prepareAccessPointUpdate(ap, ap.id, accessPointToEditForm(ap)).ok, true);
++});
++
++test("editing only the name keeps the plate, the POS flag and every other field", () => {
++  const ap = load(transportAp);
++  const form = { ...accessPointToEditForm(ap), name: "Servis 34 (yeni ad)" };
++
++  assert.deepEqual(prepared(ap, form), {
++    name: "Servis 34 (yeni ad)",
++    vehicle_plate: "34 ABC 123",
++    kind: "fare_transport",
++    institution_id: "665f0000000000000000000a",
++    pricing_mode: "metered",
++    fee: 12.5,
++    currency: "TRY",
++    device_bindings: ["665f0000000000000000000b"],
++    scheduled_route_ids: ["665f0000000000000000000c"],
++    sale_product_ids: [],
++    requires_approval: true,
++    cash_fallback_enabled: true,
++    pos_enabled: true,
++    status: "active",
++  });
++});
++
++// Service.Update (service.go) also assigns requires_approval, cash_fallback_enabled
++// and device_bindings unconditionally on every PUT, same as vehicle_plate and
++// pos_enabled. Unlike those two, the panel already carried all three in the
++// parser/form/payload before WP-1, so this checks explicitly — as its own named
++// evidence, not folded into the deepEqual above — that a name-only edit does not
++// reset them either.
++test("editing only the name does not reset requires_approval, cash_fallback_enabled or device_bindings", () => {
++  const ap = load(transportAp);
++  const body = prepared(ap, { ...accessPointToEditForm(ap), name: "Servis 34 (yeni ad)" });
++
++  assert.equal(body.requires_approval, true);
++  assert.equal(body.cash_fallback_enabled, true);
++  assert.deepEqual(body.device_bindings, ["665f0000000000000000000b"]);
++
++  const off = load({
++    ...transportAp,
++    id: "665f00000000000000000003",
++    requires_approval: false,
++    cash_fallback_enabled: false,
++    device_bindings: [],
++  });
++  const offBody = prepared(off, { ...accessPointToEditForm(off), name: "x" });
++  assert.equal(offBody.requires_approval, false);
++  assert.equal(offBody.cash_fallback_enabled, false);
++  assert.deepEqual(offBody.device_bindings, []);
++});
++
++test("pos_enabled=false is sent as an explicit false, not left out of the request", () => {
++  const ap = load(canteenAp);
++  const body = prepared(ap, accessPointToEditForm(ap));
++
++  assert.ok("pos_enabled" in body);
++  assert.equal(body.pos_enabled, false);
++});
++
++test("turning POS off or on is sent as the new value and leaves the plate alone", () => {
++  const ap = load(transportAp);
++  const form = accessPointToEditForm(ap);
++
++  const off = prepared(ap, { ...form, pos_enabled: false });
++  assert.equal(off.pos_enabled, false);
++  assert.equal(off.vehicle_plate, "34 ABC 123");
++
++  const offAp = load({ ...transportAp, pos_enabled: false });
++  const on = prepared(offAp, { ...accessPointToEditForm(offAp), pos_enabled: true });
++  assert.equal(on.pos_enabled, true);
++});
++
++test("a deliberate plate change is sent, and a deliberate clear is sent as an empty string", () => {
++  const ap = load(transportAp);
++  const form = accessPointToEditForm(ap);
++
++  assert.equal(prepared(ap, { ...form, vehicle_plate: "35 XYZ 9" }).vehicle_plate, "35 XYZ 9");
++
++  const cleared = prepared(ap, { ...form, vehicle_plate: "" });
++  assert.ok("vehicle_plate" in cleared);
++  assert.equal(cleared.vehicle_plate, "");
++  assert.equal(cleared.pos_enabled, true);
++});
++
++test("a non-transport access point round-trips without a plate and keeps its sale products", () => {
++  const ap = load(canteenAp);
++  const body = prepared(ap, { ...accessPointToEditForm(ap), name: "Yemekhane 2" });
++
++  assert.equal(body.vehicle_plate, "");
++  assert.equal(body.pos_enabled, false);
++  assert.deepEqual(body.sale_product_ids, ["665f0000000000000000000d"]);
++  assert.deepEqual(body.device_bindings, []);
++  assert.equal(body.kind, "canteen");
++});
++
++test("null or wrong-typed plate/POS values block the update instead of being defaulted", () => {
++  const bad: Record<string, unknown>[] = [
++    { vehicle_plate: null },
++    { vehicle_plate: 34 },
++    { vehicle_plate: { value: "34 ABC 123" } },
++    { pos_enabled: null },
++    { pos_enabled: "true" },
++    { pos_enabled: 1 },
++  ];
++
++  for (const override of bad) {
++    const ap = parseAccessPoint({ ...goMarshal(transportAp), ...override });
++    const result = prepareAccessPointUpdate(ap, ap.id, accessPointToEditForm(ap));
++
++    assert.equal(result.ok, false, JSON.stringify(override));
++    if (result.ok === false && result.reason === "unreadable_fields") {
++      assert.deepEqual(result.unreadable, [Object.keys(override)[0]]);
++    } else {
++      assert.fail(`expected reason "unreadable_fields" for ${JSON.stringify(override)}`);
++    }
++  }
++});
++
++test("a body that is not a full access point response cannot vouch for absent plate/POS keys", () => {
++  // Without requires_approval (never omitted by the backend) an absent key could
++  // be a truncated body, so it must not be read as "" / false.
++  const { requires_approval: _omitted, ...truncated } = goMarshal(canteenAp);
++  void _omitted;
++  const bodies: unknown[] = [truncated, {}, null, [], "", undefined];
++
++  for (const body of bodies) {
++    const ap = parseAccessPoint(body);
++    const result = prepareAccessPointUpdate(ap, ap.id, accessPointToEditForm(ap));
++
++    assert.equal(result.ok, false, JSON.stringify(body));
++    if (result.ok === false && result.reason === "unreadable_fields") {
++      assert.deepEqual(result.unreadable, ["vehicle_plate", "pos_enabled"]);
++    } else {
++      assert.fail(`expected reason "unreadable_fields" for ${JSON.stringify(body)}`);
++    }
++  }
++});
++
++// The shape check is a heuristic (every non-omitempty DTO field present and of
++// the right type), not a version/contract guarantee. This proves it is actually
++// checking those other fields too, not just requires_approval alone — a body
++// missing tenant_id (while requires_approval is present and boolean) must still
++// be rejected.
++test("a response missing a required field other than requires_approval is also rejected", () => {
++  // canteenAp's vehicle_plate/pos_enabled are themselves zero-valued (omitted by
++  // goMarshal), so this only exercises the "treat an absent key as known-empty"
++  // path — unlike transportAp, where both are present regardless of shape.
++  const { tenant_id: _omitted, ...withoutTenantId } = goMarshal(canteenAp);
++  void _omitted;
++  const ap = parseAccessPoint(withoutTenantId);
++  const result = prepareAccessPointUpdate(ap, ap.id, accessPointToEditForm(ap));
++
++  assert.equal(result.ok, false);
++  if (result.ok === false && result.reason === "unreadable_fields") {
++    assert.deepEqual(result.unreadable, ["vehicle_plate", "pos_enabled"]);
++  } else {
++    assert.fail("expected reason \"unreadable_fields\"");
++  }
++});
++
++test("values that are present are trusted even when the rest of the body is incomplete", () => {
++  const { requires_approval: _omitted, ...withoutRequiresApproval } = goMarshal(transportAp);
++  void _omitted;
++  const ap = parseAccessPoint(withoutRequiresApproval);
++
++  assert.equal(ap.vehicle_plate, "34 ABC 123");
++  assert.equal(ap.pos_enabled, true);
++});
++
++test("nothing is saved before the record has been loaded", () => {
++  const result = prepareAccessPointUpdate(null, "665f00000000000000000001", accessPointToEditForm(load(transportAp)));
++
++  assert.equal(result.ok, false);
++  assert.equal(result.ok === false && result.reason, "not_loaded");
++});
++
++// Guards a stale load() racing a route param change: the record in state is a
++// real, fully-readable AccessPoint, just not the one the route now says is
++// being edited.
++test("a loaded record for a different id than the route blocks the update", () => {
++  const ap = load(transportAp);
++  const result = prepareAccessPointUpdate(ap, "665f00000000000000000099", accessPointToEditForm(ap));
++
++  assert.equal(result.ok, false);
++  assert.equal(result.ok === false && result.reason, "id_mismatch");
++});
++
++// --- performAccessPointSave: the exact function the edit page's submit handler
++// calls (app/(dashboard)/admin/access-points/[id]/page.tsx's handleSubmit does
++// nothing else with the result but map it to a notice). These use a counting
++// stub in place of accessPointsApi.update to prove — not just assume from
++// prepareAccessPointUpdate's return value — that a blocked save never reaches
++// the update client, and that a failed call is never reported as saved.
++//
++// What this does NOT cover: the React wiring around it (state, the disabled
++// attribute, the actual click event) — this repo has no DOM renderer
++// (jsdom/@testing-library) and none was added for this package. See the WP-1
++// report §A for that gap.
++
++const countingUpdate = () => {
++  let calls = 0;
++  const seen: { id: string; payload: Partial<AccessPoint> }[] = [];
++  const update = async (id: string, payload: Partial<AccessPoint>): Promise<AccessPoint> => {
++    calls++;
++    seen.push({ id, payload });
++    throw new Error("must not be called in this test");
++  };
++  return { update, seen: () => seen, calls: () => calls };
++};
++
++test("performAccessPointSave never calls the update client when the record was never loaded", async () => {
++  const stub = countingUpdate();
++  const form = accessPointToEditForm(load(transportAp));
++
++  const result = await performAccessPointSave(null, "665f00000000000000000001", form, stub.update);
++
++  assert.equal(result.status, "blocked");
++  assert.equal(result.status === "blocked" && result.reason, "not_loaded");
++  assert.equal(stub.calls(), 0);
++});
++
++test("performAccessPointSave never calls the update client on an id mismatch", async () => {
++  const stub = countingUpdate();
++  const ap = load(transportAp);
++
++  const result = await performAccessPointSave(ap, "665f00000000000000000099", accessPointToEditForm(ap), stub.update);
++
++  assert.equal(result.status, "blocked");
++  assert.equal(result.status === "blocked" && result.reason, "id_mismatch");
++  assert.equal(stub.calls(), 0);
++});
++
++test("performAccessPointSave never calls the update client when the plate/POS value is unreadable", async () => {
++  const stub = countingUpdate();
++  const ap = parseAccessPoint({ ...goMarshal(transportAp), pos_enabled: null });
++
++  const result = await performAccessPointSave(ap, ap.id, accessPointToEditForm(ap), stub.update);
++
++  assert.equal(result.status, "blocked");
++  assert.equal(result.status === "blocked" && result.reason, "unreadable_fields");
++  assert.equal(stub.calls(), 0);
++});
++
++test("performAccessPointSave calls the update client exactly once, with the exact prepared payload, on a valid save", async () => {
++  const ap = load(transportAp);
++  const form = { ...accessPointToEditForm(ap), name: "Servis 34 (yeni ad)" };
++  const prep = prepareAccessPointUpdate(ap, ap.id, form);
++  assert.equal(prep.ok, true);
++  const saved: AccessPoint = { ...ap, name: "Servis 34 (yeni ad)" };
++  const calls: { id: string; payload: Partial<AccessPoint> }[] = [];
++  const update = async (id: string, payload: Partial<AccessPoint>): Promise<AccessPoint> => {
++    calls.push({ id, payload });
++    return saved;
++  };
++
++  const result = await performAccessPointSave(ap, ap.id, form, update);
++
++  assert.equal(calls.length, 1);
++  assert.equal(calls[0].id, ap.id);
++  assert.deepEqual(wire(calls[0].payload), prep.ok ? wire(prep.payload) : {});
++  assert.equal(result.status, "saved");
++  assert.equal(result.status === "saved" && result.ap, saved);
++});
++
++test("a failed update call is reported as save_failed, never as saved", async () => {
++  const ap = load(transportAp);
++  const form = accessPointToEditForm(ap);
++  const boom = new Error("network error");
++  const update = async (): Promise<AccessPoint> => {
++    throw boom;
++  };
++
++  const result = await performAccessPointSave(ap, ap.id, form, update);
++
++  assert.equal(result.status, "save_failed");
++  assert.equal(result.status === "save_failed" && result.error, boom);
++});
++
++// The page's handleSubmit must literally delegate to performAccessPointSave —
++// this is the one place that statement is checked, since this repo has no
++// renderer to call the real onSubmit and observe the network layer directly.
++test("the edit page's submit handler delegates to performAccessPointSave", () => {
++  const source = fs.readFileSync(
++    path.resolve(process.cwd(), "app/(dashboard)/admin/access-points/[id]/page.tsx"),
++    "utf8",
++  );
++
++  assert.match(source, /performAccessPointSave\(item, id, form,/);
++  assert.doesNotMatch(source, /accessPointsApi\.update\(id, /);
++});
++
++// Values can be trusted only if the backend keeps encoding these fields the way
++// this file assumes. Reads the aystek-core checkout (AYSTEK_CORE_DIR, default
++// ../../go/aystek-core, same convention as scripts/check-i18n.mjs); skipped when
++// that checkout is not there.
++const coreDir = path.resolve(process.cwd(), process.env.AYSTEK_CORE_DIR || "../../go/aystek-core");
++const readCore = (rel: string): string | null => {
++  const file = path.join(coreDir, rel);
++  return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
++};
++const dtoSource = readCore("internal/modules/access_points/dto/dto.go");
++const serviceSource = readCore("internal/modules/access_points/service/service.go");
++
++const structBlock = (source: string, name: string): string => {
++  const match = source.match(new RegExp(`type ${name} struct \\{([\\s\\S]*?)\\n\\}`));
++  assert.ok(match, `${name} not found`);
++  return match[1];
++};
++
++test("backend response marks vehicle_plate/pos_enabled omitempty and always sends the other required fields", {
++  skip: dtoSource ? false : `aystek-core not found at ${coreDir}`,
++}, () => {
++  const response = structBlock(dtoSource as string, "AccessPointResponse");
++
++  assert.match(response, /VehiclePlate\s+string\s+`json:"vehicle_plate,omitempty"`/);
++  assert.match(response, /PosEnabled\s+bool\s+`json:"pos_enabled,omitempty"`/);
++  for (const field of ["RequiresApproval", "TenantID", "SiteID", "Name", "Kind", "PricingMode", "Status", "CreatedAt", "UpdatedAt"]) {
++    const re = new RegExp(`${field}\\s+\\S+\\s+\`json:"[a-z_]+"\``);
++    assert.match(response, re, `${field} should be present without omitempty`);
++  }
++});
++
++test("backend update assigns the plate, the POS flag and the other panel-editable flags unconditionally", {
++  skip: serviceSource ? false : `aystek-core not found at ${coreDir}`,
++}, () => {
++  const update = (serviceSource as string).match(/func \(s \*Service\) Update\([\s\S]*?\n\}\n/);
++  assert.ok(update, "Service.Update not found");
++
++  assert.match(update[0], /\n\tcurrent\.VehiclePlate = strings\.ToUpper\(strings\.TrimSpace\(in\.VehiclePlate\)\)\n/);
++  assert.match(update[0], /\n\tcurrent\.PosEnabled = in\.PosEnabled\n/);
++  assert.match(update[0], /\n\tcurrent\.RequiresApproval = in\.RequiresApproval\n/);
++  assert.match(update[0], /\n\tcurrent\.CashFallbackEnabled = in\.CashFallbackEnabled\n/);
++  assert.match(update[0], /\n\tcurrent\.DeviceBindings = in\.DeviceBindings\n/);
++});

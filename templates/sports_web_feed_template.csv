@@ -1,0 +1,5 @@
+record_type,rank,team,played,won,drawn,lost,points,form,home_team,home_short,away_team,away_short,home_score,away_score,status,minute,starts_at
+standing,1,Örnek Spor,2,2,0,0,6,WW,,,,,,,,,
+standing,2,Örnek Gençlik,2,1,0,1,3,WL,,,,,,,,,
+match,,,,,,,,,Örnek Spor,ÖRS,Örnek Gençlik,ÖRG,2,1,finished,90,2026-09-28T18:00:00Z
+match,,,,,,,,,Örnek Gençlik,ÖRG,Örnek Spor,ÖRS,0,0,scheduled,0,2026-10-05T18:00:00Z

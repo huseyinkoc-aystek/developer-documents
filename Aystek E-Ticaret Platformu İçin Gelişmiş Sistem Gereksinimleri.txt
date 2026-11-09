@@ -1,0 +1,752 @@
+Aystek E-Ticaret Platformu İçin Gelişmiş Sistem
+Gereksinimleri
+Ürün Yönetimi
+   • Esnek Ürün Tipleri: Platform, fiziksel ürünlerin yanı sıra dijital ürün (indirilebilir içerik, lisans
+     anahtarı), abonelik (periyodik ödemeli hizmetler) ve varyantlı ürünler (beden, renk gibi
+     seçenekleri olan ürünler) gibi farklı ürün tiplerini desteklemelidir. Her ürün tipine özgü özellikler
+     tanımlanabilmelidir (örneğin dijital ürünlerde indirme linki, aboneliklerde süre ve yenileme
+     ayarları).
+   • Varyant ve Özelleştirme Desteği: Tek bir ürün için birden fazla varyant tanımlanabilmeli; stok,
+     fiyat veya görsel gibi bilgiler varyant bazında özelleştirilebilmelidir. Rakip platformlar da benzer
+     şekilde gelişmiş varyant yönetimi sunmaktadır – örneğin İkas platformunda beden, renk vb.
+     varyantlar kolaylıkla eklenebilmekte ve sınırsız sayıda ürün yönetilebilmektedir 1 . T-Soft gibi
+     kurumsal çözümlerde ise karmaşık varyant yapıları ve özel fiyatlandırma kuralları dahi
+     desteklenmektedir 2 .
+   • Stok Yönetimi: Stok takibi tüm ürünler için yapılabilmeli, ancak stok takibinin gereksiz olduğu
+     hizmet benzeri ürünler için stoksuz satış (sınırsız stok) opsiyonu bulunmalıdır. Her ürün için
+     mevcut stok adedi ve kritik stok seviyesi tanımlanarak, stok belirlenen eşik değerin altına
+     düştüğünde yöneticilere uyarı verilmelidir. Sipariş gerçekleştiğinde stoktan otomatik düşme, iade
+     veya iptal durumunda stoğa geri ekleme işlemleri sistem tarafından yönetilmelidir. Örneğin İkas
+     ve benzeri platformlarda stok takibi otomatik olarak yapılarak satıcıyı rahatlatır 1 . Ek olarak,
+     toplu stok güncelleme (CSV/Excel ile) özelliği büyük kataloglar için gereklidir.
+   • Kategori Sistemi: Ürün kategorileri için içerik yönetiminden ayrı, özel bir kategorizasyon yapısı
+     kurulmalıdır. Hiyerarşik (çok seviyeli) kategori desteği ile ana ve alt kategoriler
+     oluşturulabilmelidir. Ürünler birden fazla kategoriye atanabilmeli ya da isteğe bağlı olarak
+     etiketler ile etiketlenip alternatif gruplamalar yapılabilmelidir. Kategori sayfaları, SEO uyumlu URL
+     ve meta bilgilerle (başlık, açıklama) yönetilebilmelidir. Mevcut CMS içerik modülünden farklı
+     olarak, ürün kategorilerinin yönetimi e-ticaret akışına uygun özel ekranlar üzerinden yapılmalıdır
+     (ör. IdeaSoft yönetim panelinde “Katalog > Kategoriler” bölümünün olması gibi). Bu sayede
+     binlerce ürün içeren kataloglarda hızlı kategori güncellemeleri ve filtrelemeler mümkün olacaktır.
+   • Ürün Bilgi Yönetimi: Ürünlerin detay sayfalarında çoklu resim, video, döküman ekleme; uzun/
+     açıklayıcı açıklama alanları; teknik özellikler veya ürün nitelikleri (örn. marka, üretici, malzeme
+     vb.) tanımlama imkanı bulunmalıdır. Ayrıca SEO için ürün bazında meta etiketler (title,
+     description) ve arama motoru dostu URL düzenlenebilmelidir. Ürün varyantlarından bağımsız
+     opsiyonel eklenti/aksesuar ekleme veya ürün paketleri/Bundle oluşturma da gelişmiş bir
+     platform için fark yaratan özelliklerdendir.
+
+
+Sipariş & Müşteri Yönetimi
+   • Müşteri Profilleri (Bireysel/Kurumsal): Platformda iki tip müşteri hesabı desteklenmelidir:
+     Bireysel müşteriler ve Kurumsal müşteriler (B2B). Kurumsal hesaplar için şirket ünvanı, vergi
+     numarası, vergi dairesi, şirket adresi gibi ek alanlar tutulmalı; gerekiyorsa birden fazla kullanıcı
+     bu kurumsal hesaba bağlanabilmelidir (ör. birden çok yetkili kişi tek şirket hesabında). Bireysel
+     müşteriler için T.C. kimlik no, adres defteri gibi standart bilgiler bulunur. Müşteri profil
+     sayfalarında geçmiş siparişler, iade talepleri, favori ürünler gibi bilgiler de yer almalıdır.
+
+
+
+
+                                                   1
+   • Sipariş Yaşam Döngüsü: Siparişlerin durumu ayrıntılı bir yaşam döngüsüyle takip edilmelidir.
+     Örneğin yeni oluşturulan bir sipariş önce Taslak ya da Ön Sipariş statüsünde olabilir; ödeme
+     alındığında Onaylandı durumuna geçer. Sonrasında Hazırlanıyor/Kargolandı gibi ara durumlar
+     kullanılabilir. Müşteriye teslim edildiğinde Tamamlandı statüsüne alınır. Eğer iade veya iptal
+     durumu olursa sipariş İade Edildi ya da İptal durumuna geçmelidir. Bu durumlar sistemde
+     tanımlı olmalı ve sipariş detay sayfasından durum geçişleri (mümkünse otomatik tetiklenen e-
+     posta/SMS bildirimleriyle) yapılabilmelidir. Ayrıca kısmi teslimat ve kısmi iade gibi senaryolar
+     desteklenmelidir (bir siparişin bir kısmı iade edilir veya farklı zamanlarda kargolanırsa).
+   • Teklif ve Taslak Siparişler: B2B müşteriler için, sepetteki ürünlerden bir siparişi taslak olarak
+     kaydetme veya bir satış temsilcisinin müşteri adına sipariş taslağı oluşturması özelliği faydalı
+     olacaktır. Böylece özellikle kurumsal alıcılar nihai onay vermeden önce sipariş proforması
+     üzerinde mutabakat yapabilirler. Taslak onaylandığında gerçek siparişe dönüştürülebilmelidir.
+   • Siparişe Özel Sözleşme Ekleme: Her siparişe, o siparişe özgü bir sözleşme veya anlaşma
+     dokümanı iliştirilebilmelidir. Özellikle kurumsal satışlarda veya özel projelerde, taraflar arasında
+     imzalanan sözleşmelerin sipariş kaydına eklenmesi gerekebilir. Sistem, sipariş oluşturulurken
+     veya sonrasında yönetici panelinde sözleşme ekleme imkânı vermelidir. Bu sözleşmeler PDF/doc
+     gibi dosyalar olabileceği gibi, platform içinde tanımlı standard sözleşme şablonlarının sipariş
+     verilerine göre doldurulması şeklinde de olabilir. (Örneğin, bir Mesafeli Satış Sözleşmesi tüketici
+     siparişlerinde otomatik oluşturulup siparişe bağlanabilir.)
+   • Müşteri Hizmetleri ve Sipariş İşlemleri: Müşteri hizmetleri ekibinin kullanacağı bir arayüzle,
+     siparişlere ait değişiklik, iptal, iade işlemleri yapılabilmelidir. Sipariş notları, müşteri talepleri
+     kaydedilebilmeli; gerektiğinde kupon tanımlama veya telafi amaçlı indirim uygulama gibi
+     işlemler mümkün olmalıdır. Ayrıca iade/değişim modülü ile müşterinin panelinden iade talebi
+     başlatıp kargo etiketi alması ve iade sürecinin takibi sağlanabilir.
+
+
+Ödeme Altyapısı
+   • Türkiye İçi Ödeme Yöntemleri: Sistem, Türkiye’de yaygın kullanılan tüm ödeme yöntemleriyle
+     entegre olmalıdır. Başlıca sanal POS sağlayıcıları olan iyzico, PayTR, PayU, VakıfPay gibi fintech
+     çözümlerinin yanı sıra tüm yerli bankaların sanal POS’ları (Akbank, İş Bankası, Ziraat, Yapı Kredi
+     vb.) desteklenmelidir. Ayrıca Havale/EFT ile ödeme seçeneği ve Kapıda Ödeme (nakit ya da
+     kartla kapıda tahsilat) opsiyonları sunulmalıdır. Ödeme entegrasyonları konusunda rakipler
+     oldukça kapsamlıdır: Örneğin İkas platformu iyzico, PayTR, BKM Express gibi tüm popüler ödeme
+     sistemlerini desteklediği gibi taksitli satış seçeneklerini ve havale/kapıda ödeme gibi alternatifleri
+     de sorunsuz sunmaktadır 3 . Bizim platformumuz da bu kapsamda %100 uyumlu olmalıdır.
+   • Yurt Dışı Ödeme Yöntemleri: Uluslararası satışlar için Stripe, PayPal, Wise gibi global ödeme
+     çözümleri entegre edilmelidir. Yabancı kredi kartlarından farklı para birimlerinde ödeme
+     alabilmek, farklı ülkelerde geçerli yerel ödeme yöntemlerini (örneğin Avrupa için Sofort, Klarna;
+     Ortadoğu için kapıda ödeme; Uzakdoğu için Alipay vs.) ileride ekleyebilmek sistemi ihracata hazır
+     hale getirecektir. Özellikle Stripe ve PayPal entegrasyonları global müşteriler için bir güven
+     unsuru olacaktır.
+   • Ödeme İşlem Detayları: Platform, provizyon (ödeme auth/capture akışı) desteklemelidir. Yani
+     ödeme anında provizyon alıp, ürün hazır olduğunda çekime (capture) izin veren bir altyapı olmalı.
+     Bu özellikle tedarik süresi olan ürünlerde ya da ön siparişlerde faydalıdır. Taksitlendirme: Kredi
+     kartı ile taksit imkanı yasal ve anlaşmalı çerçevede sunulmalıdır (Türkiye’de Bankacılık
+     düzenlemelerine uygun şekilde sektör bazlı taksit sınırlarına dikkat edilmeli). Sistem, seçilen
+     ödeme yöntemine göre taksit seçeneklerini ve komisyon maliyetlerini dinamik olarak
+     hesaplayabilmelidir. Dövizle Ödeme: Birden fazla para birimi kullanılması durumunda, ödemede
+     kullanılacak kur çevrimleri doğru yönetilmelidir (güncel kur bilgisiyle). Müşteri sepetindeki
+     ürünleri farklı para birimleriyle ödemeye kalktığında tutarlar standart bir para birimine çevrilerek
+     ödeme alınmalı.
+
+
+
+
+                                                   2
+   • Ödeme Linki ve Alternatif Kanallar: Müşteri, siparişi sonrasında ödemeyi tamamlayamadıysa
+     veya sonradan ödeme yapmak isterse, ona özel bir ödeme linki üretilebilmelidir. Bu link
+     tıklandığında ilgili siparişin online ödemesi alınabilir. Bu özellikle telefonda sipariş alıp müşteriye
+     SMS/Email ile ödeme bağlantısı göndermek isteyen operasyonlar için yararlı olacaktır.
+   • Güvenlik ve Uyumluluk: Tüm ödeme işlemleri PCI-DSS uyumlu şekilde gerçekleştirilmelidir. Kart
+     verileri mümkünse sistemde tutulmamalı (tokenization yöntemiyle ödeme sağlayıcıda
+     saklanmalı). 3D Secure desteği opsiyonel/zorunlu olarak sunulmalı; sahtekarlık önleme için iyzico
+     ve benzeri servislerin fraud kontrol API’leriyle entegre olunabilir. Müşteri verisi KVKK kapsamında
+     korunacak, ödeme sırasında gerekli aydınlatma ve onaylar (3D Secure, KVKK metni)
+     gösterilecektir.
+
+
+Faturalama
+   • Fatura Profilleri: Hem bireysel hem kurumsal fatura kesebilmek için müşteri tarafında fatura
+     bilgileri yönetimi sağlanmalıdır. Bireysel müşteriler için ad-soyad, T.C. kimlik no; kurumsal için
+     şirket adı, adres, vergi dairesi & no bilgileri sipariş sırasında alınmalı ve faturalara yansıtılmalıdır.
+     Müşteriler hesaplarına birden fazla fatura adresi ekleyebilir ve sipariş bazında uygun olanı
+     seçebilir.
+   • Otomatik Fatura Oluşturma: Sipariş tamamlandığında sistem bir fatura çıktısı üretebilmelidir.
+     Bu, bir PDF olarak tasarlanabilir ve üzerinde yasal zorunlu alanlar (fatura no, tarih, satıcı bilgileri,
+     vergi numarası, ürün kalemleri, KDV oranları ve tutarları, genel toplam vb.) bulunmalıdır. Bu
+     fatura, işletmenin e-arşiv faturası olarak da kullanılabilir (vergi mükellefi olmayan son
+     kullanıcılara kesilen).
+   • E-Fatura Entegrasyonu: Şirket e-fatura mükellefi ise, platform Gelir İdaresi’nin e-fatura
+     sistemine entegre şekilde çalışabilmelidir. Bu genellikle özel entegratörler (Foriba, Uyumsoft vb.)
+     aracılığıyla yapılır. Sistem, e-fatura entegratörleriyle API üzerinden haberleşerek faturalandırma
+     sürecini otomatikleştirmelidir. Örneğin IdeaSoft, kullanıcılarına e-Fatura ve e-Arşiv entegrasyonu
+     imkanı sunmaktadır 4 . Benzer şekilde Ticimax gibi platformlar da Logo, Mikro gibi muhasebe
+     programları üzerinden e-fatura datası aktarımını destekler. Bizim çözümümüzde de e-Fatura/e-
+     Arşiv modülü planlanmalıdır.
+   • ERP ile Entegrasyon: Eğer şirket, Logo, Mikro, Nebim, SAP gibi bir ERP/Muhasebe yazılımı
+     kullanıyorsa, sipariş ve fatura bilgilerinin bu sistemlerle senkronizasyonu sağlanmalıdır. Örneğin
+     sipariş geldiğinde Logo’ya cari ve fatura olarak düşmesi, stokların karşılıklı güncellenmesi vb.
+     işlemler düşünülmelidir. Ticimax, Nebim V3, Nebim Winner, Logo, Mikro, Paraşüt, Netsis, SAP gibi
+     birçok ERP/Muhasebe sistemiyle entegre olabilmektedir 5 6 – bu sayede ürün, stok ve sipariş
+     bilgileri tek panelden yönetilebilmektedir 7 . Aystek platformu da benzeri bir esneklik
+     sunmalıdır.
+   • İrsaliye ve Diğer Belgeler: Gerekirse sistemde irsaliye (sevkiyat belgesi) oluşturma özelliği de
+     olmalıdır. Özellikle B2B gönderimlerde veya depodan yapılan parça sevkiyatlarda irsaliye kesilip
+     faturanın sonra tamamlanması istenebilir. Bu senaryolar düşünülerek, siparişe bağlı irsaliye
+     üretebilme ve bunları faturayla eşleştirebilme kabiliyeti geliştirilebilir.
+
+
+Kargo ve Teslimat
+   • Çoklu Kargo Firması Desteği: Platform, Türkiye’deki ve gerekiyorsa uluslararası büyük kargo
+     firmalarıyla entegre çalışmalıdır. Yurtiçi Kargo, MNG Kargo, Aras, PTT, Sürat, UPS, FedEx, DHL
+     gibi firmaların API entegrasyonları sayesinde siparişten sonra otomatik kargo etiketi oluşturma,
+     gönderi takibi ve kargo durum güncellemeleri yapılabilir olmalı. İkas altyapısı bu konuda örnek
+     alınabilir: MNG, Yurtiçi, Aras, PTT, Sürat, UPS gibi tüm büyük kargo firmalarıyla entegre olup
+     otomatik kargo çıkışı ve barkod/takip no üretimi imkanları sunmaktadır 8 . Bizim sistemimiz de
+     benzer şekilde tüm yaygın kargo şirketlerini kapsamalıdır.
+
+
+
+
+                                                     3
+   • Kargo Yönetimi ve Takip: Siparişlerin kargo durumu, yönetim panelinden ve müşterinin
+     profilinden izlenebilmelidir. Her sipariş için bir takip numarası saklanacak, müşteri bu numarayı
+     tıklayarak ilgili kargo firmasının takibine yönlendirilip paketinin nerede olduğunu görebilecektir.
+     Yönetim panelinde bir gönderi oluşturulduğunda, sistem kargo firması API’ına gerekli bilgileri
+     (alıcı adresi, paket ağırlığı, boyutları, içerik vb.) iletip, dönüşte aldığı takip kodunu otomatik
+     olarak siparişe işlemelidir. Kargo etiketleri (barkodlu gönderi fişi) de panelden yazdırılabilmelidir.
+   • Tahmini Teslimat Süresi: Müşteriler ürün sayfasında veya ödeme adımında tahmini teslimat
+     tarihi bilgisi görmeyi bekler. Sistem, müşterinin teslimat adresine ve seçilen kargo yöntemine
+     göre tahmini teslimat süresini hesaplayıp gösterebilmelidir (ör. “İstanbul içi 1-2 gün, diğer iller
+     3-4 gün”). Bu hesaplamada kargo firmasının servis süreleri ve varsa teslimat bölgesi (il/ilçe) bazlı
+     süre farkları dikkate alınmalı. Ticimax, aynı gün kargo gönderimi özelliği için bile siparişe özel
+     tahmini süre hesaplamaya imkan veren parametreler sunmaktadır 9 . Bu tür detaylar rekabette
+     öne çıkmamızı sağlar.
+   • Teslimat Seçenekleri (Pickup, Aynı Gün, Planlı): Gelişmiş bir sistem, klasik kargo teslimatının
+     yanında alternatif teslimat opsiyonları da sunmalıdır. Mağazadan Teslim Al (Click & Collect):
+     Eğer satıcının fiziki mağazaları/depoları varsa, müşteri sipariş sırasında istediği bir mağazadan
+     kendi teslim almayı seçebilmelidir. Bu durumda ilgili mağazaya bildirim gider ve ürün müşteri
+     tarafından alınır. Ticimax’te bu özellik “Mağaza Yönetimi” modülüyle desteklenmektedir; satıcı
+     panelinde mağazalar tanımlanıp müşteriye seçim imkanı verilir 10 . Aynı Gün Teslimat: Özellikle
+     metropollerde, sabah verilen siparişin akşam teslimi (ya da birkaç saat içinde teslim) hizmeti
+     sunulabilmektedir. Bunun için Kolay Gelsin, HepsiJet gibi hızlı kurye/kargo servisleriyle
+     entegrasyon yapılmalıdır. Nitekim Ticimax kullanıcıları HepsiJet ile aynı gün kargo gönderme
+     avantajını kullanabilmektedir 11 . Aystek platformu da benzeri iş birliklerine açık olmalı. Planlı
+     Teslimat: Müşterinin ileri bir teslimat tarihi seçebilmesi (özellikle hediye gönderimlerinde veya
+     randevulu teslimat gerektiren büyük ürünlerde) faydalı bir özelliktir. Teslimat günü ve saati
+     seçimi, gelişmiş paketlerde opsiyon olarak sunulabilir 12 .
+   • Çoklu Depo ve Bölgesel Teslimat: İleride B2B kullanımda veya geniş operasyonlarda, birden
+     fazla depo/mağaza noktasından stok yönetimi ve en yakın depodan teslimat gibi konular
+     gündeme gelebilir. T-Soft gibi ileri seviye platformlar çoklu depo mantığını destekleyerek, coğrafi
+     olarak en uygun depodan sevkiyat veya mağazadan otomatik yönlendirme gibi özellikler sunuyor
+       13 . Bizim sistem de mimari olarak çoklu depoyu destekleyecek şekilde kurgulanmalıdır.
+
+   • İndirimli Kargo Anlaşmaları: Platform, kullanıcılarına anlaşmalı kargo fiyatları sunabilecek bir
+     altyapıya sahip olmalıdır (ör. belirli kargo firmalarıyla özel anlaşmalar yapıp panelde otomatik
+     olarak indirimli fiyat uygulama). IdeaSoft bu konuda Kargonomi gibi ortaklarla çalışarak uygun
+     fiyatlı lojistik çözümleri sağlıyor 14 . Aystek de benzer şekilde ölçek ekonomisiyle müşterilerine
+     avantaj sunabilir.
+
+
+Uluslararasılaşma (Internationalization)
+   • Çoklu Dil Desteği: Platform çoklu dilde yayın yapabilmelidir. Birden fazla dil eklenebilmeli; ürün
+     adları, açıklamaları, kategori isimleri, sabit sayfalar (Hakkımızda, İletişim vs.) her dilde ayrı
+     içeriklerle yönetilebilmelidir. Kullanıcı, siteye girdiğinde tarayıcı diline veya konumuna göre
+     otomatik dil yönlendirmesi alabilir; isterse dil seçimini manuel de yapabilmelidir. Özellikle hedef
+     pazar farklı ülkeler ise otomatik dil tespiti müşteri deneyimini iyileştirir. Rakiplerde çoklu dil
+     genellikle temel düzeyde mevcut: Ticimax ve İkas çoklu dil arayüzü sunabilmekte ancak ileri
+     senaryolarda yetersiz kalabilmektedir 15 . Bu nedenle bizim platformda dil desteği daha esnek
+     ve kapsamlı düşünülmelidir (örneğin sağdan sola yazı desteği, UTF-8 dışı alfabeler, dil bazlı farklı
+     içerik gösterimleri gibi).
+   • Çoklu Para Birimi: Farklı ülkelere satış yaparken birden fazla para biriminde fiyat gösterme ve
+     ödeme alma kabiliyeti gerekir. Sistem, varsayılan bir ana para birimi yanında ek para birimleri
+     tanımlamayı ve kurlar aracılığıyla otomatik fiyat çevirisi yapmayı sağlamalıdır. Müşteri siteyi
+
+
+
+
+                                                   4
+       ziyaret ettiğinde bulunduğu ülkeye göre fiyatları ilgili para biriminde görebilmeli (örneğin EUR,
+       USD, GBP vb.). İstenirse her ürün için manuel döviz fiyatı da girebilme opsiyonu olmalıdır (kur
+       dalgalanmalarından bağımsız sabit fiyat belirlemek için). Ticimax ve İkas’ta para birimi değişimi
+       yapılabiliyor ancak çok karmaşık senaryolar için limitli kalıyorlar 15 . Bizim platform, döviz
+       kurunu günlük otomatik güncelleme, kur sabitleme kampanyası (ör. 1 USD = 1.0 TL sabitlenmiş
+       kampanyalar) gibi özelliklerle daha yenilikçi olabilir.
+     • Vergi Yönetimi: Uluslararası satışlarda vergi kuralları değişkenlik gösterir. Sistem ülke bazlı vergi
+       tanımlarını desteklemeli. Örneğin Türkiye içi satışlarda %18 KDV ürün fiyatına dahil gösterilirken,
+       yurt dışı gönderilerde KDV muaf fiyat göstermek gerekebilir. Ya da AB ülkelerine satış yaparken
+       ilgili ülkenin KDV oranını uygulamak (OSS – one stop shop kuralı) gündeme gelir. Platform, her
+       ülke veya bölge için farklı vergi oranları atamayı ve bu kuralları alışveriş sepetinde uygulamayı
+       sağlamalıdır. Vergi dahil/haric fiyat gösterimi de kullanıcı tercihlerine göre ayarlanabilmelidir
+       (B2B müşteriler genelde vergisiz fiyat görmek isterken, son kullanıcı KDV dahil görür). T-Soft gibi
+       gelişmiş platformlar bu alanda oldukça esnek çözümler sunar. Bizim platform da KDV, ÖTV veya
+       uluslararası vergiler konusunda esneklik sağlamalı, gerekirse entegre ülke bazlı vergi
+       hesaplama servisleriyle çalışabilmelidir.
+     • Çoklu Mağaza (Multi-Store) Desteği: Birden fazla markası veya iş birimi olan şirketler için, tek
+       bir merkezi altyapıdan birden çok e-ticaret sitesi yönetmek değerli bir özelliktir. Geliştireceğimiz
+       sistem, multi-store mimarisini desteklemelidir. Yani, tek bir yönetim paneli üzerinden birden
+       fazla domain/sitenin yönetimi (farklı tema, farklı dil/para birimi, farklı ürün seti ile) mümkün
+       olmalıdır. Örneğin bir şirket hem perakende (B2C) hem bayii (B2B) sitesi işletiyorsa, bunlar alt
+       siteler olarak tek platformdan idare edilebilir. Türkiye’de bu özellik en güçlü şekilde T-Soft
+       tarafından sunulmaktadır: T-Soft, her ülke ya da segment için ayrı site ve fiyatlandırma
+       yönetimine imkan veren tam bir multi-store yapısı sağlar 16 . IdeaSoft ve Ticimax gibi diğer
+       ürünler ise tek domain üzerinde çoklu dil/para birimi ile sınırlıdır, ayrı mağaza açmak isterse yeni
+       bir lisans gerekir. Dolayısıyla Aystek platformunun çoklu mağaza mimarisi, rakipler karşısında
+       önemli bir avantaj olacaktır.
+     • Yerelleştirme ve İçerik: Dil çevirilerinin ötesinde, farklı ülke sitelerinde farklı ürünler veya
+       içerikler göstermek gerekebilir. Örneğin belirli ürünler sadece belirli bölgelerde satılacaksa, o
+       mağazaya özel ürün kataloğu yönetimi yapılabilmeli. Farklı para birimi yanında, farklı ölçü birimi
+       (kg vs pound) veya farklı adres formatları (Posta kodu, eyalet alanları vs.) gibi yerelleştirme
+       detayları düşünülmelidir. Tüm bu unsurlar, uluslararası müşterilere sorunsuz bir deneyim
+       sunmak için önemlidir.
+
+
+Karşılaştırmalı Analiz (Rakip Platformlarla Karşılaştırma)
+Aystek platformunu tasarlarken, Türkiye’de halihazırda etkin olan başlıca e-ticaret altyapılarıyla
+karşılaştırıp hiçbir kritik özelliğin eksik kalmamasını hedefliyoruz. Aşağıda IdeaSoft, Ticimax, İkas, T-
+Soft ve Shopify platformlarının önemli özelliklerinin bir özeti ve kıyaslaması verilmiştir:
+
+
+
+
+                                                     5
+                                                                                              Shopify
+Özellik/Modül     IdeaSoft          Ticimax            İkas                 T-Soft
+                                                                                              (global)
+
+                                                                                              Kısmen –
+                                                                            Var – Çok
+                  Var – Gelişmiş                                                              Shopify’da
+                                                                            kapsamlı B2B
+                  bayi modülü       Var – Bayi                                                B2B özellikler
+                                                       Sınırlı – B2B        (bayi alt
+                  (özel iskonto     yönetimi ve                                               sadece
+B2B/Bayi                                               özellikleri          hesapları,
+                  ve ödeme          toptan satış                                              Shopify Plus
+Desteği                                                kısıtlı, öncelikle   kredi limiti,
+                  planları)         modülü sunar                                              gibi üst
+                                                       B2C odaklı 19 .      onay
+                  mevcuttur          18 .                                                     paketlerde
+                                                                            mekanizması)
+                    17 .                                                                      veya app’lerle
+                                                                            destekler 20 .
+                                                                                              mümkün.
+
+                                                                                              Var – 20+ dil
+                                    Var – Birden                            Var – Tam         ve para birimi
+                  Var – Çoklu dil
+                                    fazla dil/para                          kapsamlı          destekler; dil
+                  ve para birimi                       Var – Dil ve
+                                    birimi                                  çoklu dil/para    için çeviri
+Çoklu Dil &       desteği                              döviz desteği
+                                    destekler                               ve ayrı           app’leri
+Para              bulunur                              var fakat sınırlı,
+                                    ancak ileri                             vitrinler         mevcut. Farklı
+                  (temel                               gelişmekte 21 .
+                                    senaryolar                              (multi-store)     ülke için ayrı
+                  düzeyde).
+                                    sınırlı 15 .                            imkanı 16 .       mağazalar
+                                                                                              önerilir.
+
+                                                                                              Kısmen – Tek
+                  Kısmen – Her                                              Var – Tek         Shopify
+                                    Kısmen – Her
+                  mağaza için                                               platformda        mağazasında
+                                    e-ticaret sitesi
+                  ayrı IdeaSoft                                             birden fazla      birden fazla
+Multi-Store                         ayrı çalışır,      Yok – Tek
+                  lisansı gerekir                                           site/mağaza       vitrin yok, her
+(Çoklu Mağaza)                      entegre çoklu      mağaza yapısı.
+                  (tek panelden                                             yönetilebilir     ekstra
+                                    mağaza
+                  çoklu site                                                (ülke/marka       mağaza için
+                                    özelliği yok.
+                  yok).                                                     bazlı) 16 .       yeni hesap
+                                                                                              gerekir.
+
+                                    Gelişmiş                                                  Sınırsız ürün,
+                                    ürün/kategori                           En karmaşık       sezgisel
+                  Sınırsız ürün,
+                                    yönetimi;          Kullanımı kolay      ürün              panel.
+                  varyant ve
+                                    büyük              ürün ekleme,         yapılarını bile   Varyant/
+Ürün/Stok         kategori
+                                    kataloglarda       varyantlar ve        destekler (çok    opsiyon
+Yönetimi          desteği. Toplu
+                                    bazen              otomatik stok        lokasyonlu        desteği var,
+                  ürün yükleme
+                                    performans         takibi 1 .           stok, gelişmiş    ancak B2B
+                  imkanı.
+                                    sorunları                               varyant) 2 .      özellikler için
+                                    olabiliyor 22 .                                           kısıtlı.
+
+                  Türkiye’deki                                                                Kredi kartı,
+                                    Çoğu yerel                              Her türlü
+                  tüm banka                            Tüm yaygın                             PayPal (TR’de
+                                    ödeme                                   ödeme
+                  POS’ları ve                          sanal POS’lar                          yasaklı),
+                                    sistemi                                 yöntemiyle
+                  alternatif                           (iyzico, PayTR,                        Apple/Google
+Ödeme                               entegre;                                çalışabilir,
+                  ödemeler                             BKM Express                            Pay entegre.
+Entegrasyonları                     kurulum                                 B2B’ye özel
+                  entegre                              vs.)                                   Lokal TR
+                                    teknik bilgi                            vadeli satış
+                  (iyzico, PayTR,                      destekleniyor                          ödeme için
+                                    gerektirebilir                          opsiyonları
+                  iyzico Link                            3 .                                  Stripe (iyzico
+                                      3 .                                   dahi var 23 .
+                  vb.).                                                                       yok).
+
+
+
+
+                                                6
+                                                                                       Shopify
+Özellik/Modül     IdeaSoft         Ticimax          İkas              T-Soft
+                                                                                       (global)
+
+                                                                                       DHL, UPS,
+                                                                                       FedEx gibi
+                                   UPS, PTT,                                           global
+                  Yurtiçi büyük    Yurtiçi gibi                                        kargolar
+                                                    Tüm büyük         Gelişmiş:
+                  kargo            pek çok kargo                                       entegre;
+                                                    kargo firmaları   WMS/Depo
+                  firmalarıyla     entegrasyonu                                        Türkiye
+                                                    entegrasyonu      sistemleriyle
+Kargo             anlaşmaları      var; “Bir                                           yerelleri için
+                                                    var, otomatik     entegre, çoklu
+Entegrasyonları   mevcut;          Günde Kargo”                                        ayrı
+                                                    takip ve etiket   depodan
+                  panelden         gibi hızlı                                          uygulamalar
+                                                    baskı imkanı      sevkiyat
+                  kargo takibi     teslimat                                            gerekiyor.
+                                                    tam 8 .           yapabilir 25 .
+                  sunuyor.         işbirlikleri                                        Mağazadan
+                                   mevcut 24 .                                         teslim vb.
+                                                                                       özellikler app
+                                                                                       ile mümkün.
+
+                                                                                       Amazon,
+                                                                                       eBay, Etsy gibi
+                                   En geniş
+                                                                                       global
+                                   pazaryeri
+                  GittiGidiyor                      Trendyol,         Tüm              pazaryerlerine
+                                   entegrasyonu:
+                  (eskiden),                        Hepsiburada,      pazaryerlerine   uygulamalarla
+                                   Trendyol,
+                  Trendyol,                         N11 ile           bağlanabilir     entegre
+                                   HepsiBurada,
+Pazaryeri         Hepsiburada,                      senkronizasyon    fakat genelde    olabilir.
+                                   N11 yanı sıra
+Entegrasyonları   N11 gibi                          ve tek            özel             Türkiye
+                                   Amazon,
+                  pazaryerlerine                    panelden          geliştirme       pazaryerleri
+                                   ÇiçekSepeti
+                  entegrasyon                       yönetim var       gerekebiliyor    için resmi
+                                   gibi niş
+                  sunar 26 .                         28 .              29 .            destek yok
+                                   platformlar da
+                                                                                       (üçüncü parti
+                                   mevcut 27 .
+                                                                                       app’ler
+                                                                                       gerekir).
+
+                                   Kendi mobil
+                                                                      Özel             Var –
+                                   uygulaması
+                                                                      geliştirme ile   Shopify’ın
+                  (Ek hizmet)      yok, ancak       Var – iOS &
+                                                                      native mobil     kendi POS ve
+                  IdeaSoft,        mobil uyumlu     Android mobil
+                                                                      app              mobil
+                  ekstra ücretle   web arayüzü      mağaza
+                                                                      yapılabiliyor;   uygulamaları
+Mobil             mağazaya         var.             uygulaması
+                                                                      T-Soft           bulunuyor,
+Uygulama          özel mobil       (Ticimax’te      opsiyonu
+                                                                      altyapısı API    ayrıca birçok
+                  uygulama         PWA/Hybrid       mevcut,
+                                                                      ile mobil        mobil app
+                  sunuyor          app çözümleri    deneyimi
+                                                                      uygulama         yapıcı
+                  olabilir.        üçüncü           başarılı 30 .
+                                                                      entegresine      entegrasyon
+                                   partiyle
+                                                                      uygun.           mevcut.
+                                   olabilir.)
+
+
+
+
+                                             7
+                                                                                                     Shopify
+  Özellik/Modül        IdeaSoft           Ticimax            İkas                 T-Soft
+                                                                                                     (global)
+
+                                                                                                     Kısmen –
+                                                                                                     Shopify, yapay
+                                                                                                     zekâ ile ürün
+                       Var –
+                                          Var – Ticimax                                              önerileri ve
+                       “IdeaSoft AI”                                              Yok – Yapay
+                                          da yeni “AI                                                satış tahmini
+                       ile yapay zekâ                                             zekâ tabanlı
+                                          İçerik Yazarı”                                             gibi konularda
+                       destekli içerik                       Şu an belirgin       bir özelliği
+                                          modülünü                                                   üçüncü parti
+                       oluşturma                             bir AI özelliği      bulunmuyor
+  Yapay Zeka                              ekledi 33                                                  uygulamalara
+                       (ürün                                 yok (destek          (daha çok
+  Özellikleri                             (ürün ve                                                   sahip 34 .
+                       açıklamaları,                         veya plan            özelleştirme
+                                          kategori                                                   2024 itibariyle
+                       blog yazıları)                        belirtilmedi).       ve
+                                          metinlerini                                                platforma AI
+                       ücretsiz                                                   entegrasyona
+                                          yapay zekâ ile                                             ile ürün
+                       sunuluyor 31                                               odaklı).
+                                          yazma).                                                    açıklaması
+                         32 .
+                                                                                                     yazma gibi
+                                                                                                     beta özellikler
+                                                                                                     de eklendi.
+
+(Kaynak: Karşılaştırmalar çeşitli güncel kaynaklardan derlenmiştir – örneğin AkıllıCreative’in 2025 e-ticaret
+platformları rehberi 3 28 16 ve resmi ürün sayfaları – IdeaSoft, Ticimax, İkas, T-Soft.)
+
+
+Yukarıdaki tabloda görüldüğü üzere, Aystek platformunun hedefi, rakiplerin tüm güçlü yönlerini
+kapsarken onların eksik kaldığı noktaları da doldurmaktır. Özetlemek gerekirse:
+
+
+      • IdeaSoft: 50.000+ siteyle sektörün liderlerinden; kapsamlı pazarlama araçları, tema seçenekleri
+        ve bayi (B2B) modülüyle öne çıkıyor. AI içerik oluşturma özelliğini ilk sunanlardan 31 . Ancak
+        multi-store desteği yok ve bazı ileri özelleştirmelerde kapalı bir kutu olabiliyor (esneklik sınırlı).
+      • Ticimax: Uygun maliyetli paketleri ve uzun yılların deneyimiyle özellikle KOBİ’ler için popüler. B2B
+        modülü, pazaryeri ve ERP entegrasyonları ile fiyat/performans dengesi yüksek 18 5 .
+        Dezavantajı, eski nesil arayüzü ve gelişmiş özellikler için ek ücretli modüller gerektirebilmesi. Son
+        dönemde AI içerik aracı ekleyerek güncelliğini korumaya çalışıyor 33 .
+      • İkas: Yeni nesil bir platform olarak mükemmel bir modern arayüz ve kolay kullanım sunuyor.
+        Hızlı kurulum, sürükle-bırak tasarım edütörü, yerleşik mobil uygulama gibi avantajlarla özellikle
+        e-ticarete yeni başlayanlar ve küçük işletmeler için cazip 35 30 . Pazaryeri ve kargo
+        entegrasyonları iyi düzeyde 28 8 . Ancak B2B (bayi) fonksiyonlarında rakiplerinin gerisinde
+        kalıyor 19 ve çoklu mağaza/dil konularında henüz çok ileri değil.
+      • T-Soft: Kurumsal segmentte lider çözümlerden; özelleştirme esnekliği ve geniş modüler
+        yapısıyla neredeyse “yapamayacağı şey yok” denebilir. Çoklu depo, çoklu dil, çoklu mağaza, ERP
+        entegrasyonu, kurumsal ölçeklenebilirlik gibi konularda en yetkin platform 16 20 . Öte yandan
+        maliyeti çok yüksek ve küçük işletmeler için fazla kompleks kalabilir.
+      • Shopify (global örnek): Dünya çapında yüzbinlerce mağazanın tercih ettiği bulut tabanlı altyapı.
+        Kullanım kolaylığı, tema/envanter zenginliği ve eklenti ekosistemi ile tanınır 36 . Türkiye
+        piyasasında doğrudan rakip değilse de, global satış yapmak isteyen müşterilerimiz için alternatif
+        olarak değerlendirilir. Dezavantajı, yerel gereksinimlere (ör. Türkiye’deki ödeme sistemleri, e-
+        Fatura entegrasyonu) yabancı oluşu ve B2B/çoklu mağaza gibi ileri ihtiyaçlar için çözüm
+        sunmaması (veya ek geliştirme istemesi) olarak sayılabilir.
+
+Eksik/Önemli Modüller: Yukarıdaki karşılaştırmadan çıkan sonuçlara göre Aystek platformu, rakiplerde
+eksik kalan birkaç noktaya özellikle odaklanmalıdır: - Gelişmiş B2B İşlevleri: İkas gibi bazı rakipler B2B
+
+
+
+
+                                                      8
+desteğinde zayıf kalıyor 19 . Aystek, bayi yönetimi, özel fiyat listeleri, kurumsal ödeme koşulları (vadeli
+satış, kredi limiti, satın alma onay akışı vb.) gibi modülleriyle öne çıkabilir. Örneğin, Ticimax temel bayi
+özelliklerini sunarken, daha karmaşık B2B süreçleri için ancak T-Soft çözüm olabiliyor 20 . Aystek, T-Soft
+düzeyinde B2B fonksiyonlarını daha erişilebilir kılarak fark yaratmalıdır. - Multi-Store Altyapısı: Multi-
+store özelliği T-Soft dışında pek kimsede bulunmuyor 16 . Aystek’in birden çok mağazayı tek panelde
+yönetebilmeyi sunması, özellikle büyüyen işletmeler ve ajanslar için çok çekici bir özellik olacaktır. Bu,
+uluslararası pazara açılmak isteyen veya farklı dikeylerde siteler yöneten müşterileri cezbeder. - AI ve
+Otomasyon: Yapay zeka kullanımı henüz rakip platformlarda sınırlı birkaç kullanım alanıyla başladı
+(içerik yazma, basit rapor oluşturma). Hiçbiri gelişmiş tahminleme veya akıllı karar destek sistemleri
+seviyesinde değil. Aystek, aşağıdaki bölümde detaylanan AI destekli özellikleri entegre ederek, stok
+tahmini, satış analitiği ve akıllı öneriler alanlarında pazarda öncü olabilir. - Kullanıcı Deneyimi ve
+Performans: Rakip analizlerinde İkas’ın modern ve hızlı arayüzü çok övgü alıyor 35 . Aystek, arayüz
+tasarımı ve performansı konusunda en az İkas kadar iyi olmalı; yönetim paneli öğrenme eğrisi düşük,
+tema özelleştirme esnekliği yüksek olmalıdır. Özellikle mobil uyum ve hatta mobil uygulama ile mağaza
+yönetimi (Aystek Admin App gibi) düşünülebilir, zira bu da rakiplerin çoğunda olmayan bir avantaj
+olacaktır.
+
+
+AI Destekli Yönetim
+Geleneksel e-ticaret yazılımlarından farklı olarak Aystek platformu, yapay zeka (AI) ve makine öğrenimi
+ile güçlendirilmiş yönetim araçları sunmayı hedeflemelidir. Bu sayede kullanıcılar veriye dayalı kararları
+daha hızlı alabilecek, rutin işlemleri otomasyona bağlayarak verimlilik kazanacaktır. AI destekli
+düşünülen başlıca özellikler:
+
+
+     • Stok Tahminleme (Demand Forecasting): Sistem, geçmiş satış verilerini, sezonluk trendleri,
+       hatta Google Trends gibi harici verileri analiz ederek her ürün için gelecek dönem satış
+       tahminleri üretebilir. Bu tahminler ışığında ürün bazında optimal stok seviyeleri önerilir.
+       Örneğin bir ürünün önümüzdeki 30 günde tahmini satışı 50 adet ise ve elde 10 adet varsa,
+       sistem yöneticiye stok uyarısı verip 40 adet daha tedarik önerebilir. Yapay zeka, stok seviyelerini
+       optimum düzeyde tutarak stok fazlası veya eksikliğinden kaynaklanan maliyetleri minimize
+       edebilir 34 . Böylece işletmeler gereksiz yere sermayeyi depoda bağlamamış, aynı zamanda
+       talebi de kaçırmamış olur. AI modelleri, yeni bir ürün için benzer ürünlerin satışlarını baz alarak
+       da öngörüde bulunabilir.
+     • Satış Trend Analizi ve Raporlama: Platform, satış verilerini sadece geçmişe dönük raporlamakla
+       kalmamalı, aynı zamanda geleceğe dönük içgörüler de sağlamalıdır. Örneğin, belirli bir ürün
+       kategorisinde satışlar aniden düşüyorsa sistem bunu tespit edip uyarabilir; veya bir ürün
+       beklenmedik şekilde yüksek talep görüyorsa bunu yakalayıp trend olan ürünleri yöneticilere
+       bildirir. IdeaSoft AI’nın da vurguladığı gibi, rapor oluşturma ve içerik planlama gibi zaman alan
+       işleri otomatikleştirmek işletmelere hız kazandırır 31 . Aystek, akıllı panolar (dashboard)
+       sunarak “En çok satanlar, stok devir hızı en yüksek ürünler, iade oranı yüksek ürünler” gibi
+       metrikleri gerçek zamanlı gösterebilir. Hatta “Bu hafta öne çıkan ürün: X model ayakkabı, stok
+       kritik seviyede” gibi proaktif bildirimler sağlanabilir.
+     • Anomali Tespiti (Fraud & Error Detection): Yapay zeka, gelen siparişlerde veya müşteri
+       davranışlarında anormallikleri tespit etmede kullanılabilir. Örneğin normalde ortalama 2000₺
+       alışveriş yapan bir B2C müşteri bir anda 50.000₺’lik bir sipariş verdiyse, veya aynı kredi kartıyla
+       farklı şehirlerden çok sayıda sipariş denemesi yapıldıysa, sistem olası bir sahtekarlık şüphesiyle
+       yöneticilere alarm verebilir. Benzer şekilde, sistemdeki bir entegrasyon hatası nedeniyle fiyatı 0
+       görünen bir ürün onlarca kez sipariş ediliyorsa, bunu “anomali” olarak algılayıp otomatik aksiyon
+       alabilir (ürünü satışa kapatmak gibi). Bu tür AI tabanlı denetimler, hem finansal kayıpları önler
+       hem de güvenlik seviyesini artırır.
+
+
+
+
+                                                     9
+     • Otomatik Kampanya ve Fiyat Önerileri: Platform, müşteri segmentasyonunu ve ürün
+       performansını analiz ederek satışları artıracak kampanya önerilerinde bulunabilir. Örneğin, belirli
+       bir ürünün stok fazlası varsa ve uzun süredir satılmıyorsa, sistem “Bu ürün için %20 indirim
+       kampanyası yapın” diye önerebilir. Veya sık birlikte satın alınan ürünleri tespit ederek “A ürününü
+       alanlara B ürünü %10 indirimli teklif edin” şeklinde çapraz satış kampanyası tavsiyesinde
+       bulunabilir. AI, müşteri segmentlerini (alışveriş geçmişine göre) otomatik çıkararak, her segment
+       için en uygun pazarlama aksiyonlarını (indirim kuponu, e-posta kampanyası, push bildirimi vb.)
+       önerebilir. Bu, büyük ölçüde manuel analiz gerektiren CRM çalışmalarını hızlandıracaktır.
+     • Kişiselleştirilmiş Deneyim: Yapay zeka desteği, her müşteriye daha kişisel bir alışveriş deneyimi
+       sunmaya da yarar. Örneğin anasayfada veya ürün sayfalarında, kullanıcıların geçmiş gezinme/
+       alışveriş verilerine dayanarak önerilen ürünler gösterilmesi (Recommendation Engine) artık
+       beklenti haline geldi. Aystek, bu tür bir öneri motorunu dahili olarak barındırabilir. Aynı şekilde
+       arama fonksiyonunda, aranan kelimeye göre en olası sonucu öne çıkarma, yazım hatalarını
+       anlama (voice search ve görsel arama desteği gibi daha ileri AI uygulamaları da dahil)
+       planlanabilir.
+     • Operasyonel Tahminler: Kargo teslimat sürelerinin AI ile tahmini (örneğin geçmiş kargo
+       verisine göre şu müşteri adresine ortalama 2.3 günde teslim edilmiş – bunu müşteriye gerçekçi
+       gösterme), tedarik sürelerinin makine öğrenmesiyle öğrenilmesi (tedarikçi X genelde 5 günde
+       ürün gönderiyor), böylece sipariş onaylanırken müşteriye dinamik teslim tarihleri sunulması
+       mümkün olabilir.
+     • Müşteri Hizmetleri Chatbot: Platforma entegre bir yapay zeka chatbot, müşterilerin sıkça
+       sorulan sorularını yanıtlayabilir, basit destek taleplerini çözebilir. Örneğin “kargom nerede” diyen
+       bir müşteriye, AI entegre chatbot otomatik olarak kargo takibini yapıp cevap verebilir. Bu,
+       Aystek’in müşterilerine sunabileceği opsiyonel bir modül olarak düşünülebilir ve birçok işletme
+       için cazip olacaktır.
+     • Öğrenen Sistem: Zamanla platformu kullanan mağazaların verileri üzerinden AI modelleri
+       kendini iyileştirebilir. Örneğin kampanya öneri sistemi, hangi önerilerin uygulanıp iyi sonuç
+       verdiğini öğrenerek bir sonraki öneride daha isabetli olabilir. Bu şekilde Aystek kullanan herkes,
+       ekosistemin geneline yayılan bir “kolektif zeka”dan fayda görebilir.
+
+       Not: Yapay zeka uygulamalarının başarılı olabilmesi için verinin kalitesi ve miktarı kritik.
+       İlk etapta sınırlı veriyle basit kurallarla başlayan AI modülleri, platform yaygınlaştıkça
+       daha sofistike hale gelecektir. Yine de şimdiden rakiplerin önüne geçmek için bu
+       modüllerin entegre planlanması, vizyon açısından önemlidir. SAP gibi büyük kurumsal
+       çözümlerin bile AI destekli tahminleme ile işletmelere rekabet avantajı sağladığı
+       düşünüldüğünde, Aystek’in bu yetenekleri KOBİ’lere uygun maliyetle sunabilmesi önemli
+       bir fark yaratacaktır 37 34 .
+
+
+Entegrasyonlar
+Gelişmiş bir e-ticaret sistemi, kendi sunduğu özelliklerin ötesinde, farklı üçüncü parti sistemlerle uyumlu
+çalışarak gerçek bir ekosistem çözümü haline gelmelidir. Aystek platformu için planlanan kritik
+entegrasyon alanları ve gereksinimleri şöyledir:
+
+
+     • Muhasebe ve ERP Entegrasyonları: Logo, Mikro, Nebim, Netsis, Paraşüt, QuickBooks, SAP vb.
+       ticari yazılımlarla çift yönlü entegrasyon mümkün olmalıdır. Bu sayede ürün, stok, fiyat
+       bilgilerinin ERP’den siteye aktarılması; e-ticaret siparişlerinin ve yeni müşteri kayıtlarının ERP
+       tarafına otomatik iletilmesi sağlanır. Ticimax, bu konuda kapsamlı bir yelpaze sunarak Logo,
+       Nebim, Mikro, Netsis, SAP hatta Vega, Akınsoft gibi pek çok yazılımla entegre olabilmektedir 5
+         6 . Aystek de benzer şekilde esnek bir entegrasyon ara katmanı ile bu sistemlerle bağlantı
+
+
+
+
+                                                    10
+  kuracaktır (örneğin REST API + webhook’lar, veya XML/Excel aktarım seçenekleri). Özellikle Logo
+  ve Mikro gibi Türkiye’de çok kullanılan programlar için hazır modüller kritik önemde.
+• Pazaryeri Entegrasyonları: E-ticaret yapan firmalar genellikle aynı zamanda Trendyol,
+  Hepsiburada, n11, Amazon, ÇiçekSepeti, Morhipo, Allegro (yurt dışı) gibi pazaryerlerinde de ürün
+  satarlar. Platform, bu pazaryerleriyle entegre olarak ürün senkronizasyonu (ürün bilgilerini tek
+  panelden tüm platformlara aktarma) ve sipariş çekme (pazaryeri siparişlerini Aystek paneline
+  düşürme) özelliklerini sunmalıdır. Örneğin İkas’ta Trendyol, Hepsiburada ve n11 siparişleri tek
+  panelden yönetilebilmektedir 28 . Ticimax ise Amazon ve diğer bazı özel pazaryerlerini dahi
+  kapsayarak en geniş pazaryeri entegrasyonını sunar 38 . Aystek, API üzerinden pazaryeri
+  entegrasyonlarını standart paketinin bir parçası yaparsa, müşteri için büyük bir katma değer
+  olacaktır. Bu entegrasyonlar stokların tüm kanallarda güncel kalmasını, fiyat ve isim
+  güncellemelerinin her yere yansımasını, merkezi kargo ve fatura işlemlerini mümkün kılar.
+• Kargo & Lojistik Entegrasyonları: Yukarıda kargo bölümünde bahsedilen entegrasyonlara ek
+  olarak, kargo takip platformları (Geliver, Kargoist gibi) veya kargo çağrı platformları ile de
+  uyum sağlanabilir. Örneğin müşteriler gönderilerini isterlerse paket toplama noktalarından
+  alabiliyorsa (UPS Access Point gibi) bunun entegrasyonu düşünülmelidir. Ayrıca lojistik/ambar
+  firmaları (Borusan Lojistik, Horoz vb. ağır nakliye) için adres bilgilerinin bu sistemlere aktarımı
+  planlanabilir. Aystek, kargo tarafında sadece bireysel kargo firmalarıyla değil, gerekli
+  gördüğünde birden fazla firmayı yöneten ara yazılımlarla da haberleşebilecek esneklikte
+  olmalıdır.
+• Ödeme Sistemleri Entegrasyonları: Yeni ödeme yöntemleri veya finansal servislerle
+  entegrasyon kabiliyeti sürdürülmelidir. Örneğin ileride çıkabilecek bir dijital cüzdan uygulaması
+  (örn. Turkcell Paycell) sisteme kolayca eklenebilmelidir. Açık bankacılık API’leri kullanarak
+  müşteriye hesaptan doğrudan ödeme (ödeme sırasında bankasını seçip IBAN girmeden işlem)
+  gibi yenilikçi çözümler entegre edilebilir. Bu esneklik, fintech ekosistemiyle uyumlu kalmamızı
+  sağlar.
+• CRM & Pazarlama Araçları: Müşteri ilişkileri yönetimi için Salesforce, HubSpot, Zoho CRM gibi
+  popüler CRM sistemleriyle entegrasyon sunulabilir. Bu sayede sitedeki müşteri ve sipariş verileri
+  otomatik olarak CRM’de tutulup satış ekipleri veya pazarlama otomasyonları tarafından
+  kullanılabilir. Örneğin yeni kayıt olan bir müşteriyi CRM’de otomatik bir segmente atmak veya
+  yüksek değerli müşterileri CRM tarafında “VIP” olarak işaretlemek mümkün olur. Ayrıca e-posta
+  pazarlaması için Mailchimp, Sendinblue; pazarlama otomasyonu için Marketo gibi servislerle API
+  entegrasyonu değerlendirilebilir.
+• Chatbot ve Canlı Destek: Siteye entegre edilebilecek bir Chatbot altyapısı (örn. Dialogflow
+  tabanlı özel chatbot veya hazır çözümler: Tidio, MobileMonkey vb.) müşterilere 7/24 ilk seviyede
+  destek verebilir. Aystek, bu chatbot’un sipariş durumu sorgulama, iade başlatma gibi platform içi
+  işlemlerle entegre çalışmasını sağlayabilir. Ayrıca klasik canlı destek yazılımları (Jivochat, Zendesk
+  Chat, LiveChat vs.) kolay kurulabilir olmalıdır.
+• Sosyal Ticaret Entegrasyonları: Instagram Shop, Facebook Store gibi sosyal medya üzerinden
+  satış kanallarıyla bağlantı da modern bir ihtiyaç. Ürün kataloglarını Instagram ve Facebook ile
+  senkronize etme (Facebook Catalog API) veya TikTok shop entegrasyonu gibi konular için hazır
+  entegrasyonlar planlanabilir. Hatta WhatsApp Business API ile sipariş bildirimleri gönderme,
+  WhatsApp üzerinden gelen mesajlardan sipariş oluşturma gibi yenilikçi entegrasyonlar
+  düşünülebilir.
+• Diğer Sistemler ve API: Aystek platformu açık ve iyi dokümante edilmiş bir RESTful API
+  sunmalıdır. Bu sayede burada bahsedilmeyen özel sistemlerle de kolay entegrasyon yapılabilir.
+  Örneğin özel bir lojistik takip sistemi, özel bir üretim yönetim sistemi veya devlet entegrasyonları
+  (ETBIS bildirimi vs.) gerektiğinde API sayesinde bağlanılabilir. Rakiplerden İkas, RESTful API’sini
+  geliştiricilere açarak popüler entegrasyonlar için çözüm sunuyor 39 . T-Soft ise webhook’lar ve
+  gelişmiş API desteği ile ünlüdür 40 . Aystek de geliştirici dostu bir platform olarak API, webhook
+  ve SDK olanaklarıyla ekosistemini zengin tutmalıdır.
+
+
+
+
+                                               11
+          • Güncelleme ve Destek: Entegrasyonlar kurulduktan sonra da bakım ister. Aystek, ileride üçüncü
+            taraf sistemlerde olabilecek değişikliklere (örneğin Trendyol API versiyon güncellemesi) hızlı
+            adaptasyon sağlayacak bir ekibe ve mimariye sahip olmalıdır. Ayrıca entegrasyon süreçlerinde
+            müşteriye danışmanlık ve teknik destek vermek, bu özelliğin verimli kullanılmasını sağlayacaktır.
+
+
+
+Sonuç: Tüm bu sayılan gereksinimler ışığında, Aystek e-ticaret platformu hem B2C perakende satışta,
+hem de B2B toptan/bayi satışında ihtiyaçları karşılayabilecek uçtan uca bir çözüm olmayı
+hedeflemektedir. Mevcut büyük rakiplerin premium seviyedeki tüm özelliklerini karşılayan ve hatta bazı
+alanlarda (AI destekleri, multi-store altyapısı gibi) onları aşan bir ürün vizyonu ortaya konmuştur. Bu
+vizyonu gerçeğe dönüştürmek, modüler ve ölçeklenebilir bir yazılım mimarisi ve sürekli AR-GE ile
+mümkün olacaktır. Aystek platformu doğru kurgulandığında, işletmelerin e-ticaret operasyonlarını tek
+bir merkezden, verimli ve akıllı bir şekilde yönetebilmelerini sağlayacak yeni nesil bir altyapı ortaya
+çıkacaktır.
+
+
+Kaynaklar:
+- Akıllı Creative Blog – “E-Ticaret Platformları Karşılaştırması: İkas vs Ticimax vs T-soft (2025)”                        1   3   28    16
+
+- Yengeç Blog – “En İyi Hazır E-Ticaret Yazılımları: 9 Firma Karşılaştırması” (2023) 36
+- IdeaSoft Resmi Sitesi – Özellikler & IdeaSoft AI Tanıtım Sayfaları 31 32
+- Ticimax Resmi Sitesi – Muhasebe/ERP Entegrasyonları ve Özellik Tanıtımları 5 6
+- Akıllı Creative Blog – “B2B ve B2C Satış için Platform Seçimi” (Senaryo analizleri) 20 41
+- Skalla Blog – “Yapay Zeka Satış Tahminleme Nedir? İşletmelere Katkıları” 34
+
+
+
+ 1    2     3     8   15   16   18   19   20   21   22   23   25   27   28   29   30   35   38   39   40   41   E-Ticaret Platformları
+Karşılaştırması: İkas vs Ticimax vs T-soft - 2025 Güncel Rehber - Akıllı Creative
+https://www.akillicreative.com/e-ticaret-platformlari-karsilastirmasi-ikas-vs-ticimax-vs-t-soft-2025-guncel-rehber/
+
+ 4   IdeaSoft Partner Network – Resmi Satış İş Ortaklığı
+https://www.ideasoftpartner.com.tr/indirimli-urunler
+
+ 5    6     7    33   Muhasebe-ERP Entegrasyonları - Ticimax
+https://www.ticimax.com/muhasebe-erp-entegrasyonlari/
+
+ 9   Kargo Yönetimi - Ticimax Destek Alanı
+https://www.destekalani.com/Icerik/kargo-yonetimi-37
+
+10   Mağazadan Teslim Al - Ticimax Destek Alanı
+https://www.destekalani.com/Icerik/magazadan-teslim-al-555
+
+11   Ticimax Tercih Etmeniz için 10 Neden - Digital Eksper
+https://digitaleksper.com/ticimax-tercih-etmeniz-icin-10-neden/
+
+12   E-Ticaret Paketleri & E-Ticaret Paket Fiyatları - Ticimax
+https://www.ticimax.com/e-ticaret-paketleri/
+
+13   “Ticimax; bize her noktada, teknoloji anlamında, hizmet ... - Instagram
+https://www.instagram.com/reel/DMAF-esNA6D/
+
+14   31     32   IdeaSoft AI - E-ticaretin Geleceğine Adım At | IdeaSoft
+https://www.ideasoft.com.tr/sayfa/ideasoft-ai/
+
+17   B2B İş Modeli Nedir? İşletmeden İşletmeye İş Modeli Örnekleri ...
+https://www.ideasoft.com.tr/b2b-nedir/
+
+
+
+
+                                                                        12
+24   Ticimax ve Bir Günde Kargo İş Birliği
+https://www.ticimax.com/ticimax-ve-bir-gunde-kargo-is-birligi/
+
+26   ideasoft E-ticaret Paketleri Gelişmiş Yazılım Özellikleri
+https://www.ideasoft.com.tr/ozellikler/
+
+34   37   Yapay Zeka Satış Tahminleme Nedir? İşletmelere Katkıları | Skalla
+https://www.skalla.com.tr/blog/yapay-zeka-satis-tahminleme-nedir-isletmelere-katkilari
+
+36   En İyi Hazır e-Ticaret Yazılımları: 8 Firma Karşılaştırması
+https://yengec.co/blog/en-iyi-hazir-e-ticaret-yazilimlari/
+
+
+
+
+                                                             13
+
